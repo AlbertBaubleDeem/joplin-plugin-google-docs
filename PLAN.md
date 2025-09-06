@@ -22,7 +22,7 @@
 ### Test milestones (google-api-tests)
 1) Bootstrap
    - Node 18+, `googleapis`, `dotenv`
-   - OAuth2: `drive.file`, `documents` scopes
+   - OAuth2: `drive.file`, `drive.metadata.readonly`, `documents`
 2) Drive folder mgmt
    - Create/find a root folder for sync
 3) Create Doc per “note” (synthetic input)
@@ -41,6 +41,12 @@
    - Simulate `removed=true` in Changes → mark mapping as access-lost
 8) Move/rename
    - Move Doc and rename; verify `fileId` mapping holds
+
+### Baseline achieved (google-api-tests)
+- Mapping: `mapping.json` with notebook→doc, note→tab
+- Write: `writeToTab`, `replaceTabBody`, `pullPushByNote`
+- Poller: `pollChanges` pulls bound tab into `google-api-tests/local/{noteId}.md`
+- Docs: `google-api-tests/README.md` documents scripts and references
 
 ### Next steps
 - Scaffold `google-api-tests` with minimal auth + Drive Changes + Docs get/update
