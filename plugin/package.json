@@ -13,5 +13,9 @@
   "devDependencies": {
     "@types/node": "^22.5.4",
     "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "googleapis": "^159.0.0"
   }
 }
