@@ -16,6 +16,11 @@ This repository contains the work-in-progress plugin to sync Joplin notes with G
 ### Repository structure
 - `PLAN.md` — goals, scope, achieved baseline, next steps
 - `CHANGELOG.md` — notable changes
+- `plugin/` — Joplin plugin skeleton (TypeScript)
+  - `manifest.json` — plugin manifest
+  - `src/index.ts` — entrypoint (registers `gdocsHello` command)
+  - `tsconfig.json` — compiler configuration
+  - `dist/` — build output
 - `google-api-tests/` (submodule) — minimal Node scripts to exercise APIs
   - See `google-api-tests/README.md` for scripts, roadmap, and references
 
@@ -26,6 +31,11 @@ This repository contains the work-in-progress plugin to sync Joplin notes with G
   - Start page token, list changes, removed flag
 - Optimistic concurrency (Docs)
   - `documents.batchUpdate` with `writeControl.requiredRevisionId`
+
+### Development quickstart (plugin)
+- Build the plugin skeleton:
+  - `cd plugin && npm install && npm run build`
+- The build outputs to `plugin/dist`. Packaging for Joplin will be added next.
 
 ### Development quickstart (tests)
 - Clone and init submodule:
