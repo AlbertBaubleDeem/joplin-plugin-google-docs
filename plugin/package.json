@@ -1,0 +1,17 @@
+{
+  "name": "joplin-plugin-google-docs",
+  "version": "0.1.0",
+  "description": "Sync Joplin notes with Google Docs/Drive (skeleton)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "tsc -w -p ."
+  },
+  "keywords": ["joplin", "plugin", "google-docs", "google-drive"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.5.4",
+    "typescript": "^5.5.4"
+  }
+}
