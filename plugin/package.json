@@ -5,7 +5,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p .",
-    "dev": "tsc -w -p ."
+    "postbuild": "node scripts/postbuild.js",
+    "dev": "tsc -w -p .",
+    "deploy:wsl": "bash scripts/deploy-wsl.sh \"${DEST:-}\""
   },
   "keywords": ["joplin", "plugin", "google-docs", "google-drive"],
   "author": "",

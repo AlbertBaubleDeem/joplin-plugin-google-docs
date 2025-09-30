@@ -22,8 +22,13 @@ export class MinimalPoller {
   private docs = google.docs({ version: 'v1' });
 
   constructor(private cwd: string) {
-    this.statePath = path.resolve(cwd, 'google-api-tests/changes.state.json');
-    this.mappingPath = path.resolve(cwd, 'google-api-tests/mapping.json');
+    const harnessState = path.resolve(cwd, 'google-api-tests/changes.state.json');
+    const harnessMapping = path.resolve(cwd, 'google-api-tests/mapping.json');
+    const flatState = path.resolve(cwd, 'changes.state.json');
+    const flatMapping = path.resolve(cwd, 'mapping.json');
+
+    this.statePath = fs.existsSync(harnessState) ? harnessState : flatState;
+    this.mappingPath = fs.existsSync(harnessMapping) ? harnessMapping : flatMapping;
   }
 
   private loadState(): any {
@@ -105,5 +110,6 @@ export class MinimalPoller {
     }
   }
 }
+
 
 

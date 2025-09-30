@@ -1,0 +1,6 @@
+.env
+.token.json
+node_modules/
+dist/
+index.js
+

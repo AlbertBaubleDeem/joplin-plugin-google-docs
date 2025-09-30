@@ -20,8 +20,12 @@ class MinimalPoller {
         this.cwd = cwd;
         this.drive = googleapis_1.google.drive({ version: 'v3' });
         this.docs = googleapis_1.google.docs({ version: 'v1' });
-        this.statePath = path_1.default.resolve(cwd, 'google-api-tests/changes.state.json');
-        this.mappingPath = path_1.default.resolve(cwd, 'google-api-tests/mapping.json');
+        const harnessState = path_1.default.resolve(cwd, 'google-api-tests/changes.state.json');
+        const harnessMapping = path_1.default.resolve(cwd, 'google-api-tests/mapping.json');
+        const flatState = path_1.default.resolve(cwd, 'changes.state.json');
+        const flatMapping = path_1.default.resolve(cwd, 'mapping.json');
+        this.statePath = fs_1.default.existsSync(harnessState) ? harnessState : flatState;
+        this.mappingPath = fs_1.default.existsSync(harnessMapping) ? harnessMapping : flatMapping;
     }
     loadState() {
         return loadJson(this.statePath, {});
