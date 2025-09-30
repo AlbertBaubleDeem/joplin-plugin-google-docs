@@ -13,7 +13,9 @@ function ensureDistManifest() {
 function ensureRootIndexStub() {
   const root = path.resolve(__dirname, '..');
   const stub = path.resolve(root, 'index.js');
-  fs.writeFileSync(stub, "module.exports = require('./dist/index.js');\n");
+  if (!fs.existsSync(stub)) {
+    fs.writeFileSync(stub, "module.exports = require('./dist/index.js');\n");
+  }
 }
 
 ensureDistManifest();

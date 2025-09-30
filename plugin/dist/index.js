@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const api_1 = __importDefault(require("api"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const mapping_1 = require("./mapping");
 // Defer loading heavy deps (googleapis, poller) until command execution
 console.info('[gdocs] module loaded');
 api_1.default.plugins.register({
@@ -64,6 +65,41 @@ api_1.default.plugins.register({
                     }
                 },
             });
+            await api_1.default.commands.register({
+                name: 'gdocsBind',
+                label: 'Google Docs Sync: Bind note to Drive fileId',
+                execute: async () => {
+                    const noteIds = await api_1.default.workspace.selectedNoteIds();
+                    if (!noteIds.length)
+                        return;
+                    const [noteId] = noteIds;
+                    const installDir = (await api_1.default.plugins.installationDir()) || '';
+                    const r = await api_1.default.views.dialogs.showMessageBox('Enter Google Drive fileId in the note title field and press OK');
+                    if (r !== 0)
+                        return;
+                    const note = await api_1.default.workspace.selectedNote();
+                    const fileId = note?.title?.trim();
+                    if (!fileId)
+                        return;
+                    (0, mapping_1.bindNote)(installDir, noteId, { fileId });
+                    console.info('[gdocs] bound note', noteId, 'to file', fileId);
+                },
+            });
+            await api_1.default.commands.register({
+                name: 'gdocsUnbind',
+                label: 'Google Docs Sync: Unbind note',
+                execute: async () => {
+                    const noteIds = await api_1.default.workspace.selectedNoteIds();
+                    if (!noteIds.length)
+                        return;
+                    const [noteId] = noteIds;
+                    const installDir = (await api_1.default.plugins.installationDir()) || '';
+                    (0, mapping_1.unbindNote)(installDir, noteId);
+                    console.info('[gdocs] unbound note', noteId);
+                },
+            });
+            await api_1.default.views.menuItems.create('gdocsBindMenu', 'gdocsBind', api_1.default.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Bind note' });
+            await api_1.default.views.menuItems.create('gdocsUnbindMenu', 'gdocsUnbind', api_1.default.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Unbind note' });
             console.info('[gdocs] onStart: commands registered');
             // Add menu items under Tools for quick visibility
             try {

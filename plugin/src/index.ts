@@ -1,6 +1,7 @@
 import joplin from 'api';
 import path from 'path';
 import fs from 'fs';
+import { bindNote, unbindNote } from './mapping';
 // Defer loading heavy deps (googleapis, poller) until command execution
 
 console.info('[gdocs] module loaded');
@@ -66,6 +67,40 @@ joplin.plugins.register({
           }
         },
       });
+
+      await joplin.commands.register({
+        name: 'gdocsBind',
+        label: 'Google Docs Sync: Bind note to Drive fileId',
+        execute: async () => {
+          const noteIds = await joplin.workspace.selectedNoteIds();
+          if (!noteIds.length) return;
+          const [noteId] = noteIds;
+          const installDir = (await joplin.plugins.installationDir()) || '';
+          const r = await joplin.views.dialogs.showMessageBox('Enter Google Drive fileId in the note title field and press OK');
+          if (r !== 0) return;
+          const note = await joplin.workspace.selectedNote();
+          const fileId = note?.title?.trim();
+          if (!fileId) return;
+          bindNote(installDir, noteId, { fileId });
+          console.info('[gdocs] bound note', noteId, 'to file', fileId);
+        },
+      });
+
+      await joplin.commands.register({
+        name: 'gdocsUnbind',
+        label: 'Google Docs Sync: Unbind note',
+        execute: async () => {
+          const noteIds = await joplin.workspace.selectedNoteIds();
+          if (!noteIds.length) return;
+          const [noteId] = noteIds;
+          const installDir = (await joplin.plugins.installationDir()) || '';
+          unbindNote(installDir, noteId);
+          console.info('[gdocs] unbound note', noteId);
+        },
+      });
+
+      await joplin.views.menuItems.create('gdocsBindMenu', 'gdocsBind', joplin.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Bind note' });
+      await joplin.views.menuItems.create('gdocsUnbindMenu', 'gdocsUnbind', joplin.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Unbind note' });
       console.info('[gdocs] onStart: commands registered');
 
       // Add menu items under Tools for quick visibility
