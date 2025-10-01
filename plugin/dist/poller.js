@@ -50,7 +50,7 @@ class MinimalPoller {
     async processOnce(auth) {
         const st = this.loadState();
         if (!st.pageToken)
-            return;
+            return { matched: 0, items: [] };
         const drive = googleapis_1.google.drive({ version: 'v3', auth });
         const docs = googleapis_1.google.docs({ version: 'v1', auth });
         const mapping = this.loadMapping();
@@ -60,6 +60,8 @@ class MinimalPoller {
                 fileIdToNoteId[b.fileId] = noteId;
         }
         let pageToken = st.pageToken;
+        let matched = 0;
+        const items = [];
         while (pageToken) {
             const { data } = await drive.changes.list({
                 pageToken,
@@ -77,8 +79,12 @@ class MinimalPoller {
                     continue;
                 }
                 const binding = mapping.notes[noteId];
-                if (!binding?.tabId)
+                if (!binding?.tabId) {
+                    console.info('[plugin-poller] Would update note (no tabId)', noteId, 'from file', fileId);
+                    matched += 1;
+                    items.push({ noteId, fileId, tabMatched: false });
                     continue;
+                }
                 const meta = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
                 const tabs = meta.data.tabs || [];
                 const stack = [...tabs];
@@ -94,6 +100,8 @@ class MinimalPoller {
                 }
                 if (found) {
                     console.info('[plugin-poller] Would update note', noteId, 'from file', fileId, 'tab', binding.tabId);
+                    matched += 1;
+                    items.push({ noteId, fileId, tabMatched: true });
                 }
             }
             if (data.nextPageToken) {
@@ -105,6 +113,7 @@ class MinimalPoller {
                 break;
             }
         }
+        return { matched, items };
     }
 }
 exports.MinimalPoller = MinimalPoller;

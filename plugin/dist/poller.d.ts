@@ -9,5 +9,12 @@ export declare class MinimalPoller {
     private saveState;
     private loadMapping;
     initIfNeeded(auth: any): Promise<string | null>;
-    processOnce(auth: any): Promise<void>;
+    processOnce(auth: any): Promise<{
+        matched: number;
+        items: Array<{
+            noteId: string;
+            fileId: string;
+            tabMatched: boolean;
+        }>;
+    }>;
 }
