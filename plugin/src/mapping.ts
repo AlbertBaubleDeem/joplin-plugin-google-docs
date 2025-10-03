@@ -11,6 +11,7 @@ export type NoteBinding = {
 export type Mapping = {
   notes: Record<string, NoteBinding>;
   notebooks: Record<string, { fileId?: string }>;
+  syncFolderId?: string;
 };
 
 function loadJson<T>(filePath: string, fallback: T): T {
@@ -59,6 +60,56 @@ export function unbindNote(baseDir: string, noteId: string): Mapping {
 export function getBinding(baseDir: string, noteId: string): NoteBinding | undefined {
   const m = loadMapping(baseDir);
   return m.notes[noteId];
+}
+
+// --- Drive appProperties helpers (appProperties-only pairing strategy) ---
+
+export type DriveLike = {
+  files: {
+    get(params: any): Promise<{ data: any }>;
+    update(params: any): Promise<{ data: any }>;
+  };
+};
+
+export const APP_PROPERTY_NOTE_ID = 'joplinNoteId';
+export const APP_PROPERTY_TAB_ID = 'tabId';
+export const APP_PROPERTY_VERSION = 'pairingVersion';
+export const APP_PROPERTY_PLUGIN_ID = 'pluginId';
+export const PLUGIN_ID = 'io.github.albertbaubledeem.joplin.google-docs';
+
+export async function getDriveAppProperties(drive: DriveLike, fileId: string): Promise<Record<string, string>> {
+  const { data } = await drive.files.get({
+    fileId,
+    fields: 'id,appProperties',
+    supportsAllDrives: true,
+  });
+  return (data && data.appProperties) || {};
+}
+
+export async function setDriveAppProperties(
+  drive: DriveLike,
+  fileId: string,
+  props: Record<string, string | undefined>,
+): Promise<Record<string, string>> {
+  // Filter out undefined values to avoid clearing keys unintentionally
+  const filtered: Record<string, string> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (typeof v === 'string') filtered[k] = v;
+  }
+  const { data } = await drive.files.update({
+    fileId,
+    requestBody: { appProperties: filtered },
+    fields: 'id,appProperties',
+    supportsAllDrives: true,
+  });
+  return (data && data.appProperties) || {};
+}
+
+export function setSyncFolderId(baseDir: string, folderId: string): Mapping {
+  const m = loadMapping(baseDir);
+  m.syncFolderId = folderId;
+  saveMapping(baseDir, m);
+  return m;
 }
 
 

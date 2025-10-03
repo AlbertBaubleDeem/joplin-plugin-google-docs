@@ -9,9 +9,24 @@ Place credentials next to the installed plugin so Joplin does not need to inheri
     - `GOOGLE_CLIENT_ID=...`
     - `GOOGLE_CLIENT_SECRET=...`
     - `GOOGLE_REDIRECT_URI=http://localhost:3000/oauth2callback`
+    - `GOOGLE_SYNC_FOLDER_ID=...` (Drive folder to scan for Auto Pair)
   - `.token.json` containing your OAuth tokens (same format as the `google-api-tests` token file)
 - Optional: You can continue to keep credentials under the repo at `google-api-tests/.env` and `google-api-tests/.token.json`. The plugin will fall back to those if files are not found in the plugin directory.
 - Optional: You may set `GOOGLE_TOKENS_PATH` in the process environment to override the token file path.
+
+## OAuth scopes (required)
+
+Enable these APIs in your Google Cloud project and authorize with the following scopes:
+
+- Drive API: `https://www.googleapis.com/auth/drive` (required to write appProperties on existing Docs and list files in the sync folder)
+- Docs API: `https://www.googleapis.com/auth/documents` (read/write Docs content)
+
+Re-auth steps:
+
+1. Update OAuth consent screen to include the two scopes above, save and re-publish if needed.
+2. Delete the plugin’s `.token.json` (so a new token is issued with the updated scopes).
+3. Re-authorize using your existing token generation flow (or OAuth Playground) and place the new `.token.json` in the plugin install directory.
+4. Restart Joplin.
 
 ## Mapping/state in plugin directory
 
@@ -24,6 +39,16 @@ Place credentials next to the installed plugin so Joplin does not need to inheri
 - Tools → Command palette (Ctrl+P)
 - Run: "Google Docs Sync: Poll Once (log-only)"
 - View logs in Help → Toggle Developer Tools
+
+## Auto Pair (appProperties-only mapping)
+
+- Configure a Drive folder by setting `GOOGLE_SYNC_FOLDER_ID` in `.env` next to the installed plugin.
+- In Joplin: Tools → Command palette → "Google Docs Sync: Auto Pair Folder".
+- Behavior:
+  - For each Google Doc in the folder:
+    - If it has `appProperties.joplinNoteId`, ensure a local mapping for that note→file.
+    - If it has no `joplinNoteId`, create a new note (in the current note's notebook if one is selected, otherwise the first notebook), bind it, and write `joplinNoteId` back to Drive appProperties.
+  - No title matching is used; mapping is Drive appProperties + local mapping.json.
 
 ## Dev deploy (WSL → Windows profile)
 
