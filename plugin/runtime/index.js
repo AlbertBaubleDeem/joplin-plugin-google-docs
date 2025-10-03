@@ -111,11 +111,16 @@ console.warn('[gdocs] root index executing');
         );
         auth.setCredentials(tokens);
         const docs = google.docs({ version: 'v1', auth });
-        const doc = await docs.documents.get({ documentId: binding.fileId });
         const conv = require(path.resolve(installDir, 'dist/converter.js'));
-            const md = conv.convertDocumentToMarkdown(doc.data, { installDir });
+        const structure = require(path.resolve(installDir, 'dist/structure.js'));
+        // Use structure helper to build conversion doc from tabs
+        const sel = await structure.buildConversionDocFromTabs(docs, binding.fileId, { tabId: binding.tabId });
+        const convertDoc = sel.convertDoc;
+        const tabCount = sel.tabCount || 0;
+        const usedTabTitle = sel.usedTabTitle || '';
+        const md = conv.convertDocumentToMarkdown(convertDoc, { installDir });
         await j.data.put(['notes', noteId], null, { body: md });
-        await j.views.dialogs.showMessageBox('Pulled content into the note.');
+        await j.views.dialogs.showMessageBox('Pulled content into the note.' + (tabCount ? (' tabs=' + tabCount + (usedTabTitle ? (' used="' + usedTabTitle + '"') : '')) : ''));
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
