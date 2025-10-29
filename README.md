@@ -13,6 +13,11 @@ This repository contains the work-in-progress plugin to sync Joplin notes with G
 - A standalone test harness (as a submodule) validates auth, Drive Changes polling, Docs tabs access, and minimal MD→Docs formatting.
 - Baseline decisions and design notes live in the plan (see below).
 
+### Decisions (current)
+- Import existing Google Docs using Google Picker, then bind via Drive `appProperties`.
+- Push existing Joplin notes into a dedicated "Google Docs Sync" folder on Personal Drive.
+- Adopt notebook→Doc and note→tab mapping for sync going forward (Doc tabs), while keeping one-Doc-per-note compatibility during transition.
+
 ### Repository structure
 - `PLAN.md` — goals, scope, achieved baseline, next steps
 - `CHANGELOG.md` — notable changes
@@ -45,8 +50,10 @@ This repository contains the work-in-progress plugin to sync Joplin notes with G
 
 ### Roadmap (high level)
 - Plugin skeleton: settings, OAuth, mapping storage
+- Google Picker: import/bind existing Docs into the sync folder
 - Push path: robust MD→Docs conversion (headings, lists, code, links, images)
 - Pull path: Drive Changes poller integrated in plugin lifecycle
+- Migration: bulk push notebooks → one Doc per notebook; each note as a tab
 - Conflict handling & user prompts
 
 ---

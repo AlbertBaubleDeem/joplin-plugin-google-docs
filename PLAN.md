@@ -14,6 +14,11 @@
 - Basic conversion: MD ⇄ plain text (phase 1); formatting later
 - Errors surfaced in Joplin UI (lost access, conflicts)
 
+### Decisions (adopted for next phase)
+- Import existing Google Documents via Google Picker and bind using Drive `appProperties`.
+- Create/ensure a dedicated "Google Docs Sync" folder in Personal Drive and push existing Joplin notes there.
+- Evolve mapping to Option B: notebook → one Google Doc, each note → one tab in that Doc. Keep Option A compatibility for already-bound one-note-per-Doc items during migration.
+
 ### Tabs (exploration track)
 - Read/write per-tab content and target requests via `Location.tabId`
 - Only if creating/renaming tabs fits our needs; otherwise stay with Option A for MVP
@@ -49,8 +54,18 @@
 - Docs: `google-api-tests/README.md` documents scripts and references
 
 ### Next steps
-- Scaffold `google-api-tests` with minimal auth + Drive Changes + Docs get/update
-- Document env setup (OAuth client, token cache) in a README
-- Commit and iterate on push/pull/conflict cases
+- Picker integration (import path):
+  - Launch Google Picker, select Docs within or outside the sync folder
+  - On select: copy/migrate into sync folder if needed; set `appProperties` with `joplinNoteId`/`tabId`
+- Bulk push (migration path):
+  - For each notebook, create/ensure one Google Doc in sync folder
+  - For each note, create/ensure a tab and push Markdown content
+  - Write/maintain `appProperties` and local mapping
+- Polling improvements:
+  - Scope by sync folder or `appProperties.pluginId`
+  - Continue optimistic concurrency with `requiredRevisionId`
+- Converter improvements:
+  - Lists/links/images (beyond headings/bold/italic/code)
+- Docs/README: update setup instructions for Picker scopes and sync folder
 
 
