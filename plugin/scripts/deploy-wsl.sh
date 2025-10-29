@@ -48,7 +48,9 @@ rm -rf "$TMP_DIR"
 
 # Optional: copy markdown mapping config to enable formatting heuristics (code blocks, etc.)
 mkdir -p "$DEST/config"
-if [ -f "$ROOT_DIR/../google-api-tests/config/md-mapping.json" ]; then
+if [ -f "$ROOT_DIR/config/md-mapping.json" ]; then
+  cp "$ROOT_DIR/config/md-mapping.json" "$DEST/config/md-mapping.json"
+elif [ -f "$ROOT_DIR/../google-api-tests/config/md-mapping.json" ]; then
   cp "$ROOT_DIR/../google-api-tests/config/md-mapping.json" "$DEST/config/md-mapping.json"
 fi
 

@@ -286,6 +286,7 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
 export function buildDocsStyleUpdateRequests(
   paraRanges: ParaRange[],
   textRanges: TextRange[],
+  opts?: { monoFont?: string },
 ): any[] {
   const paraReqs = paraRanges
     .filter(r => r.end >= r.start)
@@ -321,10 +322,8 @@ export function buildDocsStyleUpdateRequests(
     // Drop requests that would have empty fields (e.g., pure codeMono spans handled separately)
     .filter(req => !!req.updateTextStyle.fields);
 
-  // Enforce monospace font for CODEBLOCK paragraphs. Use mapping.code.monoFont or default.
-  const monoFont = (typeof (global as any) !== 'undefined' && (global as any).__gdocsMappingMonoFont)
-    ? (global as any).__gdocsMappingMonoFont
-    : 'Roboto Mono';
+  // Enforce monospace font for CODEBLOCK paragraphs and inline code. Caller provides preferred font.
+  const monoFont = (opts && opts.monoFont) || 'Roboto Mono';
   // Inline code spans → monospace font
   const codeInlineReqs = textRanges
     .filter(r => r.codeMono && r.end > r.start)

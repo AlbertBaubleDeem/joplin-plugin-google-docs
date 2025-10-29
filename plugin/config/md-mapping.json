@@ -1,0 +1,25 @@
+{
+  "title": { "useTitle": true, "source": "first_line" },
+  "subtitle": { "mode": "italic" },
+  "headings": {
+    "h1": "HEADING_1",
+    "h2": "HEADING_2",
+    "h3": "HEADING_3",
+    "default": "NORMAL_TEXT"
+  },
+  "inline": {
+    "bold": { "marker": "**", "textStyle": { "bold": true } },
+    "italic": { "marker": "*", "textStyle": { "italic": true } }
+  },
+  "code": {
+    "inline": { "marker": "`" },
+    "block": true,
+    "monoFont": "Roboto Mono"
+  },
+  "paragraph": {
+    "blockquote": {
+      "prefix": ">",
+      "paragraphStyle": { "indentStart": { "magnitude": 18, "unit": "PT" } }
+    }
+  }
+}

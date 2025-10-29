@@ -206,7 +206,7 @@ export class MinimalPoller {
     for (const d of decisions) {
       try {
         if (d.action === 'push') {
-          await executePush(j, google, auth, installDir, dataDir, d.noteId);
+          await executePush(j, installDir, dataDir, d.noteId);
           updated += 1;
         } else {
           await executePull(j, docs, installDir, d.noteId, d.fileId);
@@ -272,8 +272,8 @@ async function updateMappingAfterPull(dataDir: string, docs: any, noteId: string
   savePluginMapping(dataDir, mapping);
 }
 
-async function executePush(j: any, googleApi: any, auth: any, installDir: string, dataDir: string, noteId: string): Promise<void> {
-  await pushNoteById({ j, google: googleApi, auth, installDir, dataDir, noteId });
+async function executePush(j: any, installDir: string, dataDir: string, noteId: string): Promise<void> {
+  await pushNoteById({ j, installDir, dataDir, noteId });
 }
 
 

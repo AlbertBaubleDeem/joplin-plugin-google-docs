@@ -6,11 +6,10 @@ import {
   setDriveAppProperties,
 } from '../mapping';
 import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests, loadMdMappingConfig } from '../converter';
+import { getAuthFromInstallDir } from '../services/auth';
 
 type Params = {
   j: any;
-  google: any;
-  auth: any;
   installDir: string;
   dataDir: string;
 };
@@ -20,7 +19,8 @@ export async function pushNote(params: Params): Promise<{
   fileId: string;
   newRevisionId: string;
 }> {
-  const { j, google, auth, dataDir } = params;
+  const { j, dataDir } = params;
+  const { google, auth } = await getAuthFromInstallDir(params.installDir);
   const docs = google.docs({ version: 'v1', auth });
   const drive = google.drive({ version: 'v3', auth });
 
@@ -67,7 +67,7 @@ export async function pushNote(params: Params): Promise<{
   const newRevisionId: string = String((afterRes.data as any).revisionId || '');
 
   // Apply paragraph and inline styles using converter heuristics
-  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges);
+  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { monoFont: mappingCfg?.code?.monoFont || 'Roboto Mono' });
   if (styleReqs.length) {
     await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: styleReqs } });
   }
@@ -99,7 +99,8 @@ export async function pushNoteById(params: Params & { noteId: string }): Promise
   fileId: string;
   newRevisionId: string;
 }> {
-  const { j, google, auth, dataDir, noteId } = params;
+  const { j, dataDir, noteId } = params;
+  const { google, auth } = await getAuthFromInstallDir(params.installDir);
   const docs = google.docs({ version: 'v1', auth });
   const drive = google.drive({ version: 'v3', auth });
 
@@ -130,7 +131,8 @@ export async function pushNoteById(params: Params & { noteId: string }): Promise
   const afterRes = await docs.documents.get({ documentId: fileId });
   const newRevisionId: string = String((afterRes.data as any).revisionId || '');
 
-  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges);
+  const mappingCfg = loadMdMappingConfig(params.installDir);
+  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { monoFont: mappingCfg?.code?.monoFont || 'Roboto Mono' });
   if (styleReqs.length) {
     await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: styleReqs } });
   }

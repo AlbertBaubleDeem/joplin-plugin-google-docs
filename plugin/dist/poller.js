@@ -204,7 +204,7 @@ class MinimalPoller {
         for (const d of decisions) {
             try {
                 if (d.action === 'push') {
-                    await executePush(j, googleapis_1.google, auth, installDir, dataDir, d.noteId);
+                    await executePush(j, installDir, dataDir, d.noteId);
                     updated += 1;
                 }
                 else {
@@ -261,6 +261,6 @@ async function updateMappingAfterPull(dataDir, docs, noteId, fileId) {
     mapping.notes[noteId] = nb;
     (0, mapping_1.saveMapping)(dataDir, mapping);
 }
-async function executePush(j, googleApi, auth, installDir, dataDir, noteId) {
-    await (0, pushNote_1.pushNoteById)({ j, google: googleApi, auth, installDir, dataDir, noteId });
+async function executePush(j, installDir, dataDir, noteId) {
+    await (0, pushNote_1.pushNoteById)({ j, installDir, dataDir, noteId });
 }

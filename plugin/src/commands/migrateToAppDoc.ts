@@ -1,4 +1,5 @@
 import type { DriveLike } from '../mapping';
+import { getAuthFromInstallDir } from '../services/auth';
 import {
   bindNote,
   loadMapping,
@@ -12,8 +13,6 @@ import {
 
 type Params = {
   j: any;
-  google: any;
-  auth: any;
   installDir: string;
   dataDir: string;
   sourceFileId?: string;
@@ -26,7 +25,8 @@ export async function migrateToAppDoc(params: Params): Promise<{
   noteId: string;
   syncFolderId: string;
 }> {
-  const { j, google, auth, dataDir } = params;
+  const { j, installDir, dataDir } = params;
+  const { google, auth } = await getAuthFromInstallDir(installDir);
   const drive = google.drive({ version: 'v3', auth });
   const docs = google.docs({ version: 'v1', auth });
 

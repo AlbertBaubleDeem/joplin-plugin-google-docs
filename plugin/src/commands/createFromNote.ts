@@ -1,4 +1,5 @@
 import type { DriveLike } from '../mapping';
+import { getAuthFromInstallDir } from '../services/auth';
 import {
   loadMapping,
   setSyncFolderId,
@@ -12,8 +13,6 @@ import {
 
 type Params = {
   j: any;
-  google: any;
-  auth: any;
   installDir: string;
   dataDir: string;
   noteId?: string;
@@ -24,7 +23,8 @@ export async function createFromNote(params: Params): Promise<{
   newFileId: string;
   syncFolderId: string;
 }> {
-  const { j, google, auth, dataDir } = params;
+  const { j, installDir, dataDir } = params;
+  const { google, auth } = await getAuthFromInstallDir(installDir);
   const drive = google.drive({ version: 'v3', auth });
 
   // Resolve or create sync folder (marked with our pluginId appProperty)

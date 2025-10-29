@@ -10,26 +10,10 @@ console.warn('[gdocs] root index executing');
         const fs = require('fs');
         const dataDir = await j.plugins.dataDir();
         const installDir = (await j.plugins.installationDir()) || '';
-        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-        const { google } = require(googleapisPath);
         const pollerPath = path.resolve(installDir, 'dist/poller.js');
         const { MinimalPoller } = require(pollerPath);
-        const envPath = path.resolve(installDir, '.env');
-        const tokenPath = path.resolve(installDir, '.token.json');
-        if (fs.existsSync(envPath)) {
-          const env = fs.readFileSync(envPath, 'utf8');
-          for (const line of env.split('\n')) {
-            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-            if (m) process.env[m[1]] = m[2];
-          }
-        }
-        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-        const auth = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
-        auth.setCredentials(tokens);
+        const { getAuthFromInstallDir } = require(path.resolve(installDir, 'dist/services/auth.js'));
+        const { google, auth } = await getAuthFromInstallDir(installDir);
         const poller = new MinimalPoller(dataDir);
         const maybe = await poller.initIfNeeded(auth);
         if (maybe === null) { await j.views.dialogs.showMessageBox('Initialized Drive pageToken. Run Poll Once again.'); return; }
@@ -46,29 +30,10 @@ console.warn('[gdocs] root index executing');
     async function createFromNoteCmd() {
       try {
         const path = require('path');
-        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
-        const envPath = path.resolve(installDir, '.env');
-        const tokenPath = path.resolve(installDir, '.token.json');
-        if (fs.existsSync(envPath)) {
-          const env = fs.readFileSync(envPath, 'utf8');
-          for (const line of env.split('\n')) {
-            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-            if (m) process.env[m[1]] = m[2];
-          }
-        }
-        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-        const { google } = require(googleapisPath);
-        const auth = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
-        auth.setCredentials(tokens);
         const mod = require(path.resolve(installDir, 'dist/commands/createFromNote.js'));
-        const res = await mod.createFromNote({ j, google, auth, installDir, dataDir });
+        const res = await mod.createFromNote({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Created Google Doc and bound note. newFileId=' + res.newFileId);
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
@@ -84,8 +49,8 @@ console.warn('[gdocs] root index executing');
       const path = require('path');
       const installDir = (await j.plugins.installationDir()) || '';
       const dataDir = await j.plugins.dataDir();
-      const mappingPath = path.resolve(installDir, 'dist/mapping.js');
-      const { bindNote } = require(mappingPath);
+      const bindDoerPath = path.resolve(installDir, 'dist/commands/bindNote.js');
+      const { bindNoteDoer } = require(bindDoerPath);
       const dId = 'gdocsBindDialog-' + Date.now();
       const d = await j.views.dialogs.create(dId);
       const html = `
@@ -103,7 +68,7 @@ console.warn('[gdocs] root index executing');
       const fileId = fd.fileId ? String(fd.fileId).trim() : '';
       const tabId = fd.tabId ? String(fd.tabId).trim() : '';
       if (!fileId) { await j.views.dialogs.showMessageBox('fileId is required.'); return; }
-      bindNote(dataDir, noteId, { fileId, tabId: tabId || undefined });
+      bindNoteDoer(dataDir, noteId, fileId, tabId || undefined);
       await j.views.dialogs.showMessageBox('Bound note to fileId: ' + fileId + (tabId ? (' tabId: ' + tabId) : ''));
     }
 
@@ -114,47 +79,21 @@ console.warn('[gdocs] root index executing');
       const path = require('path');
       const installDir = (await j.plugins.installationDir()) || '';
       const dataDir = await j.plugins.dataDir();
-      const mappingPath = path.resolve(installDir, 'dist/mapping.js');
-      const { unbindNote } = require(mappingPath);
-      unbindNote(dataDir, noteId);
+      const unbindDoerPath = path.resolve(installDir, 'dist/commands/unbindNote.js');
+      const { unbindNoteDoer } = require(unbindDoerPath);
+      unbindNoteDoer(dataDir, noteId);
       await j.views.dialogs.showMessageBox('Unbound note.');
     }
 
     async function pullNow() {
       try {
-        const noteIds = await j.workspace.selectedNoteIds();
-        if (!noteIds.length) return;
-        const [noteId] = noteIds;
         const path = require('path');
-        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
-        const mappingPath = path.resolve(installDir, 'dist/mapping.js');
-        const { loadMapping } = require(mappingPath);
-        const mapping = loadMapping(dataDir);
-        const binding = mapping.notes[noteId];
-        if (!binding?.fileId) { await j.views.dialogs.showMessageBox('Note is not bound.'); return; }
-        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-        const { google } = require(googleapisPath);
-        const pluginToken = path.resolve(installDir, '.token.json');
-        const tokens = JSON.parse(fs.readFileSync(pluginToken, 'utf8'));
-        const auth = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
-        auth.setCredentials(tokens);
-        const docs = google.docs({ version: 'v1', auth });
-        const conv = require(path.resolve(installDir, 'dist/converter.js'));
-        const structure = require(path.resolve(installDir, 'dist/structure.js'));
-        // Use structure helper to build conversion doc from tabs
-        const sel = await structure.buildConversionDocFromTabs(docs, binding.fileId, { tabId: binding.tabId });
-        const convertDoc = sel.convertDoc;
-        const tabCount = sel.tabCount || 0;
-        const usedTabTitle = sel.usedTabTitle || '';
-        const md = conv.convertDocumentToMarkdown(convertDoc, { installDir });
-        await j.data.put(['notes', noteId], null, { body: md });
-        await j.views.dialogs.showMessageBox('Pulled content into the note.' + (tabCount ? (' tabs=' + tabCount + (usedTabTitle ? (' used="' + usedTabTitle + '"') : '')) : ''));
+        const pullDoerPath = path.resolve(installDir, 'dist/commands/pullNote.js');
+        const { pullNote } = require(pullDoerPath);
+        const res = await pullNote({ j, installDir, dataDir });
+        await j.views.dialogs.showMessageBox('Pulled content into the note.' + (res.tabCount ? (' tabs=' + res.tabCount + (res.usedTabTitle ? (' used="' + res.usedTabTitle + '"') : '')) : ''));
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
@@ -165,31 +104,11 @@ console.warn('[gdocs] root index executing');
     async function autoPairFolder() {
       try {
         const path = require('path');
-        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
-        const envPath = path.resolve(installDir, '.env');
-        const tokenPath = path.resolve(installDir, '.token.json');
-        if (fs.existsSync(envPath)) {
-          const env = fs.readFileSync(envPath, 'utf8');
-          for (const line of env.split('\n')) {
-            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-            if (m) process.env[m[1]] = m[2];
-          }
-        }
-        const folderId = process.env.GOOGLE_SYNC_FOLDER_ID || '';
-        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-        const { google } = require(googleapisPath);
-        const auth = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
-        auth.setCredentials(tokens);
-        const autoPairPath = path.resolve(installDir, 'dist/commands/autoPair.js');
-        const mod = require(autoPairPath);
-        const res = await mod.autoPair({ j, google, auth, installDir, dataDir, folderId });
+        const runPath = path.resolve(installDir, 'dist/commands/autoPairRun.js');
+        const { autoPairRun } = require(runPath);
+        const res = await autoPairRun({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox(`Auto Pair complete. folderId=${res.folderId} scanned=${res.scanned} created=${res.created} linked=${res.linkedExisting} ensured=${res.ensuredMapping}`);
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
@@ -201,29 +120,10 @@ console.warn('[gdocs] root index executing');
     async function migrateToAppDocCmd() {
       try {
         const path = require('path');
-        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
-        const envPath = path.resolve(installDir, '.env');
-        const tokenPath = path.resolve(installDir, '.token.json');
-        if (fs.existsSync(envPath)) {
-          const env = fs.readFileSync(envPath, 'utf8');
-          for (const line of env.split('\n')) {
-            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-            if (m) process.env[m[1]] = m[2];
-          }
-        }
-        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-        const { google } = require(googleapisPath);
-        const auth = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
-        auth.setCredentials(tokens);
         const mod = require(path.resolve(installDir, 'dist/commands/migrateToAppDoc.js'));
-        const res = await mod.migrateToAppDoc({ j, google, auth, installDir, dataDir });
+        const res = await mod.migrateToAppDoc({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Migrated to App Doc. newFileId=' + res.newFileId + ' noteId=' + res.noteId);
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
@@ -235,29 +135,10 @@ console.warn('[gdocs] root index executing');
     async function pushNow() {
       try {
         const path = require('path');
-        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
-        const envPath = path.resolve(installDir, '.env');
-        const tokenPath = path.resolve(installDir, '.token.json');
-        if (fs.existsSync(envPath)) {
-          const env = fs.readFileSync(envPath, 'utf8');
-          for (const line of env.split('\n')) {
-            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-            if (m) process.env[m[1]] = m[2];
-          }
-        }
-        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-        const { google } = require(googleapisPath);
-        const auth = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
-        auth.setCredentials(tokens);
         const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
-        const res = await mod.pushNote({ j, google, auth, installDir, dataDir });
+        const res = await mod.pushNote({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
