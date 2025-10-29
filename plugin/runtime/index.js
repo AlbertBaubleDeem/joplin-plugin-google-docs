@@ -43,6 +43,40 @@ console.warn('[gdocs] root index executing');
       }
     }
 
+    async function createFromNoteCmd() {
+      try {
+        const path = require('path');
+        const fs = require('fs');
+        const installDir = (await j.plugins.installationDir()) || '';
+        const dataDir = await j.plugins.dataDir();
+        const envPath = path.resolve(installDir, '.env');
+        const tokenPath = path.resolve(installDir, '.token.json');
+        if (fs.existsSync(envPath)) {
+          const env = fs.readFileSync(envPath, 'utf8');
+          for (const line of env.split('\n')) {
+            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+            if (m) process.env[m[1]] = m[2];
+          }
+        }
+        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
+        const { google } = require(googleapisPath);
+        const auth = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          process.env.GOOGLE_REDIRECT_URI,
+        );
+        auth.setCredentials(tokens);
+        const mod = require(path.resolve(installDir, 'dist/commands/createFromNote.js'));
+        const res = await mod.createFromNote({ j, google, auth, installDir, dataDir });
+        await j.views.dialogs.showMessageBox('Created Google Doc and bound note. newFileId=' + res.newFileId);
+      } catch (e) {
+        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+        await j.views.dialogs.showMessageBox('Create-from-note error: ' + msg);
+      }
+    }
+
     async function bindCurrentNote() {
       const noteIds = await j.workspace.selectedNoteIds();
       if (!noteIds.length) return;
@@ -198,6 +232,40 @@ console.warn('[gdocs] root index executing');
       }
     }
 
+    async function pushNow() {
+      try {
+        const path = require('path');
+        const fs = require('fs');
+        const installDir = (await j.plugins.installationDir()) || '';
+        const dataDir = await j.plugins.dataDir();
+        const envPath = path.resolve(installDir, '.env');
+        const tokenPath = path.resolve(installDir, '.token.json');
+        if (fs.existsSync(envPath)) {
+          const env = fs.readFileSync(envPath, 'utf8');
+          for (const line of env.split('\n')) {
+            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+            if (m) process.env[m[1]] = m[2];
+          }
+        }
+        const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+        const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
+        const { google } = require(googleapisPath);
+        const auth = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          process.env.GOOGLE_REDIRECT_URI,
+        );
+        auth.setCredentials(tokens);
+        const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
+        const res = await mod.pushNote({ j, google, auth, installDir, dataDir });
+        await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
+      } catch (e) {
+        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+        await j.views.dialogs.showMessageBox('Push error: ' + msg);
+      }
+    }
+
     j.plugins.register({
       onStart: async () => {
         await j.commands.register({ name: 'gdocsHello', label: 'Google Docs Sync: Hello', execute: async () => { await j.views.dialogs.showMessageBox('Google Docs plugin is active.'); } });
@@ -205,6 +273,8 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: Pull (update note)', execute: async () => { await pullNow(); } });
+        await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: Push (update Doc)', execute: async () => { await pushNow(); } });
+        await j.commands.register({ name: 'gdocsCreateFromNote', label: 'Google Docs Sync: Create Doc from Note', execute: async () => { await createFromNoteCmd(); } });
         await j.commands.register({ name: 'gdocsAutoPair', label: 'Google Docs Sync: Auto Pair Folder', execute: async () => { await autoPairFolder(); } });
         await j.commands.register({ name: 'gdocsMigrateToAppDoc', label: 'Google Docs Sync: Migrate to App Doc', execute: async () => { await migrateToAppDocCmd(); } });
         await j.views.menuItems.create('gdocsHelloMenu','gdocsHello', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Hello' });
@@ -212,6 +282,8 @@ console.warn('[gdocs] root index executing');
         await j.views.menuItems.create('gdocsBindMenu','gdocsBind', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Bind note' });
         await j.views.menuItems.create('gdocsUnbindMenu','gdocsUnbind', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Unbind note' });
         await j.views.menuItems.create('gdocsPullNowMenu','gdocsPullNow', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Pull (update note)' });
+        await j.views.menuItems.create('gdocsPushNowMenu','gdocsPushNow', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Push (update Doc)' });
+        await j.views.menuItems.create('gdocsCreateFromNoteMenu','gdocsCreateFromNote', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Create Doc from Note' });
         await j.views.menuItems.create('gdocsMigrateMenu','gdocsMigrateToAppDoc', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Migrate to App Doc' });
         await j.views.menuItems.create('gdocsAutoPairMenu','gdocsAutoPair', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Auto Pair Folder' });
       },

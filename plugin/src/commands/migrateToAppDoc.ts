@@ -67,8 +67,10 @@ export async function migrateToAppDoc(params: Params): Promise<{
     const selected = await j.workspace.selectedNoteIds();
     if (selected && selected.length) {
       noteId = selected[0];
-      const b = mapping.notes[noteId];
-      if (b?.fileId) sourceFileId = b.fileId;
+      if (noteId) {
+        const b = mapping.notes[noteId];
+        if (b?.fileId) sourceFileId = b.fileId;
+      }
     }
   }
   if (!sourceFileId) throw new Error('No source fileId provided and current note is not bound.');
