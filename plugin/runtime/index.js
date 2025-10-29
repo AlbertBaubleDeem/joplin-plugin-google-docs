@@ -33,9 +33,9 @@ console.warn('[gdocs] root index executing');
         const poller = new MinimalPoller(dataDir);
         const maybe = await poller.initIfNeeded(auth);
         if (maybe === null) { await j.views.dialogs.showMessageBox('Initialized Drive pageToken. Run Poll Once again.'); return; }
-        const res = await poller.processOnce(auth);
-        const lines = res.items.map(it => `- noteId=${it.noteId} fileId=${it.fileId} tabMatched=${it.tabMatched}`);
-        await j.views.dialogs.showMessageBox('Poll completed. Matches: ' + res.matched + (lines.length ? ('\n' + lines.join('\n')) : ''));
+        const syncRes = await poller.syncOnce(auth, j, installDir, dataDir);
+        const lines = (syncRes.decisions || []).map(d => `- noteId=${d.noteId} fileId=${d.fileId} action=${d.action} reason=${d.reason} tabMatched=${d.tabMatched}`);
+        await j.views.dialogs.showMessageBox('Poll completed. Matches: ' + syncRes.matched + ' Updated: ' + syncRes.updated + (lines.length ? ('\n' + lines.join('\n')) : ''));
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);

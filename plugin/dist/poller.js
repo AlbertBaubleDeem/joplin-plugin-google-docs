@@ -7,6 +7,10 @@ exports.MinimalPoller = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const googleapis_1 = require("googleapis");
+const structure_1 = require("./structure");
+const converter_1 = require("./converter");
+const mapping_1 = require("./mapping");
+const pushNote_1 = require("./commands/pushNote");
 function loadJson(p, fallback) {
     try {
         return JSON.parse(fs_1.default.readFileSync(p, 'utf8'));
@@ -62,6 +66,7 @@ class MinimalPoller {
         let pageToken = st.pageToken;
         let matched = 0;
         const items = [];
+        const seenChanged = {};
         while (pageToken) {
             const { data } = await drive.changes.list({
                 pageToken,
@@ -83,6 +88,7 @@ class MinimalPoller {
                     console.info('[plugin-poller] Would update note (no tabId)', noteId, 'from file', fileId);
                     matched += 1;
                     items.push({ noteId, fileId, tabMatched: false });
+                    seenChanged[fileId] = true;
                     continue;
                 }
                 const meta = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
@@ -102,6 +108,7 @@ class MinimalPoller {
                     console.info('[plugin-poller] Would update note', noteId, 'from file', fileId, 'tab', binding.tabId);
                     matched += 1;
                     items.push({ noteId, fileId, tabMatched: true });
+                    seenChanged[fileId] = true;
                 }
             }
             if (data.nextPageToken) {
@@ -113,7 +120,100 @@ class MinimalPoller {
                 break;
             }
         }
+        // Fallback: direct revision comparison for mapped files not reported by Drive changes
+        for (const [noteId, b] of Object.entries(mapping.notes)) {
+            const fileId = b.fileId;
+            if (!fileId || seenChanged[fileId])
+                continue;
+            try {
+                const meta = await docs.documents.get({ documentId: fileId });
+                const rev = String(meta.data.revisionId || '');
+                if (rev && b.lastKnownRevisionId && rev !== b.lastKnownRevisionId) {
+                    console.info('[plugin-poller] Would update note (rev mismatch)', noteId, 'file', fileId);
+                    matched += 1;
+                    items.push({ noteId, fileId, tabMatched: !!b.tabId });
+                }
+            }
+            catch (_) {
+                // ignore fetch errors
+            }
+        }
         return { matched, items };
+    }
+    // Decide push vs pull per item by comparing revisionId and timestamps
+    async decideOnce(auth, j) {
+        const base = await this.processOnce(auth);
+        if (!base.items.length)
+            return { matched: 0, decisions: [] };
+        const drive = googleapis_1.google.drive({ version: 'v3', auth });
+        const docs = googleapis_1.google.docs({ version: 'v1', auth });
+        const mapping = this.loadMapping();
+        const decisions = [];
+        for (const it of base.items) {
+            try {
+                const nb = (mapping.notes && mapping.notes[it.noteId]) || {};
+                const noteMeta = await j.data.get(['notes', it.noteId], { fields: ['id', 'updated_time'] });
+                const fileMeta = await drive.files.get({ fileId: it.fileId, fields: 'id, modifiedTime' });
+                const docRes = await docs.documents.get({ documentId: it.fileId });
+                const docRevisionId = String(docRes.data.revisionId || '');
+                const noteUpdated = Number(noteMeta.updated_time || 0);
+                const docUpdated = Date.parse((fileMeta.data && fileMeta.data.modifiedTime) || 0);
+                const lastSync = Number(nb.lastSyncTs || 0);
+                const docNewer = nb.lastKnownRevisionId && docRevisionId && nb.lastKnownRevisionId !== docRevisionId;
+                const noteNewer = !docNewer && (noteUpdated > Math.max(docUpdated || 0, lastSync || 0));
+                if (docNewer) {
+                    decisions.push({ ...it, action: 'pull', reason: 'docRevisionChanged' });
+                }
+                else if (noteNewer) {
+                    decisions.push({ ...it, action: 'push', reason: 'noteUpdatedAfterDoc' });
+                }
+                else {
+                    decisions.push({ ...it, action: 'pull', reason: 'defaultPull' });
+                }
+            }
+            catch (_) {
+                // If metadata fetch fails, default to pull to avoid overwriting Docs
+                decisions.push({ ...it, action: 'pull', reason: 'metaError' });
+            }
+        }
+        return { matched: base.matched, decisions };
+    }
+    // Execute decisions: push or pull items, update mapping metadata on success
+    async syncOnce(auth, j, installDir, dataDir) {
+        const { matched, decisions } = await this.decideOnce(auth, j);
+        let updated = 0;
+        const docs = googleapis_1.google.docs({ version: 'v1', auth });
+        let mapping = (0, mapping_1.loadMapping)(dataDir);
+        for (const d of decisions) {
+            try {
+                if (d.action === 'push') {
+                    await (0, pushNote_1.pushNoteById)({ j, google: googleapis_1.google, auth, installDir, dataDir, noteId: d.noteId });
+                    updated += 1;
+                }
+                else {
+                    const sel = await (0, structure_1.buildConversionDocFromTabs)(docs, d.fileId, { tabId: undefined });
+                    const convertDoc = sel.convertDoc;
+                    const md = (0, converter_1.convertDocumentToMarkdown)(convertDoc, { installDir });
+                    await j.data.put(['notes', d.noteId], null, { body: md });
+                    // Update mapping with new doc revision and sync timestamp
+                    const docMeta = await docs.documents.get({ documentId: d.fileId });
+                    const docRevisionId = String(docMeta.data.revisionId || '');
+                    mapping = (0, mapping_1.loadMapping)(dataDir);
+                    const nb = mapping.notes[d.noteId] || {};
+                    nb.fileId = d.fileId;
+                    if (docRevisionId)
+                        nb.lastKnownRevisionId = docRevisionId;
+                    nb.lastSyncTs = Date.now();
+                    mapping.notes[d.noteId] = nb;
+                    (0, mapping_1.saveMapping)(dataDir, mapping);
+                    updated += 1;
+                }
+            }
+            catch {
+                // continue
+            }
+        }
+        return { matched, updated, decisions };
     }
 }
 exports.MinimalPoller = MinimalPoller;

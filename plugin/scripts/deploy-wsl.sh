@@ -46,6 +46,12 @@ rm -rf "$DEST/node_modules"
 cp -r "$TMP_DIR/node_modules" "$DEST/"
 rm -rf "$TMP_DIR"
 
+# Optional: copy markdown mapping config to enable formatting heuristics (code blocks, etc.)
+mkdir -p "$DEST/config"
+if [ -f "$ROOT_DIR/../google-api-tests/config/md-mapping.json" ]; then
+  cp "$ROOT_DIR/../google-api-tests/config/md-mapping.json" "$DEST/config/md-mapping.json"
+fi
+
 echo "[deploy] Done."
 
 

@@ -23,7 +23,7 @@ export type MappingConfig = {
   // Keys should be "h1".."h6"; values are regex strings like "^#\\s+".
   mdHeadingPatterns?: Record<string, string>;
   inline?: { bold?: any; italic?: any };
-  code?: { inline?: { marker?: string }, block?: any };
+  code?: { inline?: { marker?: string }, block?: any; monoFont?: string };
   // Optional: allow overriding Markdown heading prefixes for Pull (Docs→MD) without code changes.
   // Configure in config/md-mapping.json, e.g. { "mdPrefixes": { "TITLE": "## ", "SUBTITLE": "" } }.
   // This affects ONLY Docs→MD. Push (MD→Docs) uses mapping.headings to map MD back to Docs styles.
@@ -101,9 +101,8 @@ function headingPrefix(namedStyle: string | undefined, mapping: MappingConfig): 
 }
 
 function isDocParagraphCodeBlock(p: any): boolean {
-  const isMonospace = !!p?.elements?.find((el: any) => el?.textRun?.textStyle?.weightedFontFamily?.fontFamily?.toLowerCase?.().includes('mono'));
-  const hasBlockStyle = !!(p?.paragraphStyle?.shading || p?.paragraphStyle?.borderLeft);
-  return Boolean(isMonospace || hasBlockStyle);
+  // Simpler rule: only treat as code block if paragraph has background shading or border
+  return !!(p?.paragraphStyle?.shading || p?.paragraphStyle?.borderLeft);
 }
 
 export function convertDocumentToMarkdown(doc: any, opts?: { installDir?: string }): string {
@@ -114,6 +113,8 @@ export function convertDocumentToMarkdown(doc: any, opts?: { installDir?: string
     const p = c?.paragraph;
     if (!p?.elements?.length) continue;
     const prefix = headingPrefix(p.paragraphStyle?.namedStyleType, mapping);
+    const allowBlock = !!mapping.code?.block;
+    const shouldFence = allowBlock && !prefix && isDocParagraphCodeBlock(p);
     let line = '';
     for (const el of p.elements) {
       const tr = el?.textRun;
@@ -129,20 +130,23 @@ export function convertDocumentToMarkdown(doc: any, opts?: { installDir?: string
       const ff = tr?.textRun?.textStyle?.weightedFontFamily?.fontFamily || tr?.textStyle?.weightedFontFamily?.fontFamily;
       const isRunMono = typeof ff === 'string' && ff.toLowerCase().includes('mono');
       const inlineMarker = mapping.code?.inline?.marker;
-      if (isRunMono && inlineMarker) {
-        if (!(content.startsWith(inlineMarker) && content.endsWith(inlineMarker))) {
-          content = `${inlineMarker}${content}${inlineMarker}`;
+      if (!shouldFence) {
+        if (isRunMono && inlineMarker) {
+          if (!(content.startsWith(inlineMarker) && content.endsWith(inlineMarker))) {
+            content = `${inlineMarker}${content}${inlineMarker}`;
+          }
         }
+        line += applyInline(content, tr.textStyle as TextStyle);
+      } else {
+        // Inside a fenced code block: output text verbatim, no inline Markdown markers
+        line += content;
       }
-      line += applyInline(content, tr.textStyle as TextStyle);
     }
     if (line.trim().length) {
       // Code block heuristic (Docs→MD) behind mapping.code.block flag.
-      const allowBlock = !!mapping.code?.block;
-      if (allowBlock && !prefix && isDocParagraphCodeBlock(p)) {
-        out.push('```');
-        out.push(line.trimEnd());
-        out.push('```');
+      if (shouldFence) {
+        const block = ['```', line.trimEnd(), '```'].join('\n');
+        out.push(block);
       } else {
         let finalLine = prefix + line.trimEnd();
         if (p.paragraphStyle?.namedStyleType === 'SUBTITLE' && mapping.subtitle?.mode === 'italic') {
@@ -160,7 +164,7 @@ export function convertDocumentToMarkdown(doc: any, opts?: { installDir?: string
 // --- Markdown → Docs (for push) ---
 
 export type ParaRange = { start: number; end: number; style: string };
-export type TextRange = { start: number; end: number; bold?: boolean; italic?: boolean };
+export type TextRange = { start: number; end: number; bold?: boolean; italic?: boolean; codeMono?: boolean };
 
 // Public: load mapping config for callers outside this module (identical to internal loader)
 export function loadMdMappingConfig(installDir?: string): MappingConfig {
@@ -209,6 +213,28 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
     const namedStyleType = inFence ? 'CODEBLOCK' : paragraphStyleFor(original);
     let line = inFence ? original : stripHeadingMarkers(original);
 
+    // Track inline code spans first, so later emphasis parsing skips them
+    const codeRangesInLine: Array<{ start: number; end: number }> = [];
+    if (!inFence) {
+      let re = /`([^`]+)`/g;
+      let m: RegExpExecArray | null;
+      let offset = 0;
+      while ((m = re.exec(line)) !== null) {
+        const full = m[0];
+        const inner = m[1];
+        const startInLine = m.index - offset;
+        const endInLine = startInLine + inner.length;
+        // Record inline code range in final plain string coordinates
+        textRanges.push({ start: cursor + startInLine, end: cursor + endInLine, codeMono: true });
+        codeRangesInLine.push({ start: startInLine, end: endInLine });
+        // Remove backticks from the line while keeping the inner text
+        line = line.slice(0, m.index) + inner + line.slice(m.index + full.length);
+        offset += full.length - inner.length;
+        re.lastIndex = m.index + inner.length;
+      }
+    }
+
+    const overlapsSkip = (s: number, e: number) => codeRangesInLine.some(r => Math.max(r.start, s) < Math.min(r.end, e));
     const applyInline = (re: RegExp, upd: (s: number, e: number) => void) => {
       let m: RegExpExecArray | null;
       let offset = 0;
@@ -217,6 +243,7 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
         const inner = m[1];
         const startInLine = m.index - offset;
         const endInLine = startInLine + inner.length;
+        if (overlapsSkip(startInLine, endInLine)) { re.lastIndex = m.index + full.length; continue; }
         upd(cursor + startInLine, cursor + endInLine);
         line = line.slice(0, m.index) + inner + line.slice(m.index + full.length);
         offset += full.length - inner.length;
@@ -280,15 +307,45 @@ export function buildDocsStyleUpdateRequests(
       },
     }));
 
-  const textReqs = textRanges.map(r => ({
-    updateTextStyle: {
-      range: { startIndex: r.start + 1, endIndex: r.end + 1 },
-      textStyle: { bold: !!r.bold, italic: !!r.italic },
-      fields: [r.bold ? 'bold' : null, r.italic ? 'italic' : null].filter(Boolean).join(','),
-    },
-  }));
+  const textReqs = textRanges
+    .map(r => {
+      const fields = [r.bold ? 'bold' : null, r.italic ? 'italic' : null].filter(Boolean).join(',');
+      return {
+        updateTextStyle: {
+          range: { startIndex: r.start + 1, endIndex: r.end + 1 },
+          textStyle: { bold: !!r.bold, italic: !!r.italic },
+          fields,
+        },
+      };
+    })
+    // Drop requests that would have empty fields (e.g., pure codeMono spans handled separately)
+    .filter(req => !!req.updateTextStyle.fields);
 
-  return [...paraReqs, ...textReqs];
+  // Enforce monospace font for CODEBLOCK paragraphs. Use mapping.code.monoFont or default.
+  const monoFont = (typeof (global as any) !== 'undefined' && (global as any).__gdocsMappingMonoFont)
+    ? (global as any).__gdocsMappingMonoFont
+    : 'Roboto Mono';
+  // Inline code spans → monospace font
+  const codeInlineReqs = textRanges
+    .filter(r => r.codeMono && r.end > r.start)
+    .map(r => ({
+      updateTextStyle: {
+        range: { startIndex: r.start + 1, endIndex: r.end + 1 },
+        textStyle: { weightedFontFamily: { fontFamily: monoFont } },
+        fields: 'weightedFontFamily',
+      },
+    }));
+  const codeMonoReqs = paraRanges
+    .filter(r => r.style === 'CODEBLOCK' && r.end > r.start)
+    .map(r => ({
+      updateTextStyle: {
+        range: { startIndex: r.start + 1, endIndex: r.end + 1 },
+        textStyle: { weightedFontFamily: { fontFamily: monoFont } },
+        fields: 'weightedFontFamily',
+      },
+    }));
+
+  return [...paraReqs, ...textReqs, ...codeInlineReqs, ...codeMonoReqs];
 }
 
 
