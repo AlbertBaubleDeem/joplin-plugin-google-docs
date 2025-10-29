@@ -143,8 +143,6 @@ class MinimalPoller {
     // Decide push vs pull per item by comparing revisionId and timestamps
     async decideOnce(auth, j) {
         const base = await this.processOnce(auth);
-        if (!base.items.length)
-            return { matched: 0, decisions: [] };
         const drive = googleapis_1.google.drive({ version: 'v3', auth });
         const docs = googleapis_1.google.docs({ version: 'v1', auth });
         const mapping = this.loadMapping();
@@ -152,31 +150,50 @@ class MinimalPoller {
         for (const it of base.items) {
             try {
                 const nb = (mapping.notes && mapping.notes[it.noteId]) || {};
-                const noteMeta = await j.data.get(['notes', it.noteId], { fields: ['id', 'updated_time'] });
-                const fileMeta = await drive.files.get({ fileId: it.fileId, fields: 'id, modifiedTime' });
-                const docRes = await docs.documents.get({ documentId: it.fileId });
-                const docRevisionId = String(docRes.data.revisionId || '');
-                const noteUpdated = Number(noteMeta.updated_time || 0);
-                const docUpdated = Date.parse((fileMeta.data && fileMeta.data.modifiedTime) || 0);
-                const lastSync = Number(nb.lastSyncTs || 0);
-                const docNewer = nb.lastKnownRevisionId && docRevisionId && nb.lastKnownRevisionId !== docRevisionId;
-                const noteNewer = !docNewer && (noteUpdated > Math.max(docUpdated || 0, lastSync || 0));
-                if (docNewer) {
-                    decisions.push({ ...it, action: 'pull', reason: 'docRevisionChanged' });
-                }
-                else if (noteNewer) {
-                    decisions.push({ ...it, action: 'push', reason: 'noteUpdatedAfterDoc' });
-                }
-                else {
-                    decisions.push({ ...it, action: 'pull', reason: 'defaultPull' });
-                }
+                const [noteUpdated, docModified, currentRevisionId] = await Promise.all([
+                    fetchNoteUpdated(j, it.noteId),
+                    fetchDriveModified(drive, it.fileId),
+                    fetchDocRevisionId(docs, it.fileId),
+                ]);
+                const d = decideAction({
+                    lastKnownRevisionId: nb.lastKnownRevisionId,
+                    currentRevisionId,
+                    noteUpdated,
+                    docModified,
+                    lastSyncTs: nb.lastSyncTs,
+                });
+                decisions.push({ ...it, action: d.action, reason: d.reason });
             }
             catch (_) {
                 // If metadata fetch fails, default to pull to avoid overwriting Docs
                 decisions.push({ ...it, action: 'pull', reason: 'metaError' });
             }
         }
-        return { matched: base.matched, decisions };
+        // Include locally updated notes since last sync even if Drive reported no change
+        const decidedNotes = new Set(decisions.map(d => d.noteId));
+        let extra = 0;
+        for (const [noteId, nbAny] of Object.entries(mapping.notes)) {
+            const nb = nbAny;
+            const fileId = nb && nb.fileId;
+            if (!fileId || decidedNotes.has(noteId))
+                continue;
+            try {
+                const [noteUpdated, currentRevisionId] = await Promise.all([
+                    fetchNoteUpdated(j, noteId),
+                    fetchDocRevisionId(docs, fileId),
+                ]);
+                const lastSync = Number(nb.lastSyncTs || 0);
+                const docUnchanged = !nb.lastKnownRevisionId || nb.lastKnownRevisionId === currentRevisionId;
+                if (noteUpdated > lastSync && docUnchanged) {
+                    decisions.push({ noteId, fileId, tabMatched: !!nb.tabId, action: 'push', reason: 'noteUpdatedNoDocChange' });
+                    extra += 1;
+                }
+            }
+            catch {
+                // ignore
+            }
+        }
+        return { matched: base.matched + extra, decisions };
     }
     // Execute decisions: push or pull items, update mapping metadata on success
     async syncOnce(auth, j, installDir, dataDir) {
@@ -187,25 +204,12 @@ class MinimalPoller {
         for (const d of decisions) {
             try {
                 if (d.action === 'push') {
-                    await (0, pushNote_1.pushNoteById)({ j, google: googleapis_1.google, auth, installDir, dataDir, noteId: d.noteId });
+                    await executePush(j, googleapis_1.google, auth, installDir, dataDir, d.noteId);
                     updated += 1;
                 }
                 else {
-                    const sel = await (0, structure_1.buildConversionDocFromTabs)(docs, d.fileId, { tabId: undefined });
-                    const convertDoc = sel.convertDoc;
-                    const md = (0, converter_1.convertDocumentToMarkdown)(convertDoc, { installDir });
-                    await j.data.put(['notes', d.noteId], null, { body: md });
-                    // Update mapping with new doc revision and sync timestamp
-                    const docMeta = await docs.documents.get({ documentId: d.fileId });
-                    const docRevisionId = String(docMeta.data.revisionId || '');
-                    mapping = (0, mapping_1.loadMapping)(dataDir);
-                    const nb = mapping.notes[d.noteId] || {};
-                    nb.fileId = d.fileId;
-                    if (docRevisionId)
-                        nb.lastKnownRevisionId = docRevisionId;
-                    nb.lastSyncTs = Date.now();
-                    mapping.notes[d.noteId] = nb;
-                    (0, mapping_1.saveMapping)(dataDir, mapping);
+                    await executePull(j, docs, installDir, d.noteId, d.fileId);
+                    await updateMappingAfterPull(dataDir, docs, d.noteId, d.fileId);
                     updated += 1;
                 }
             }
@@ -217,3 +221,46 @@ class MinimalPoller {
     }
 }
 exports.MinimalPoller = MinimalPoller;
+// ---- Helpers kept small and composable (no spaghetti) ----
+async function fetchNoteUpdated(j, noteId) {
+    const meta = await j.data.get(['notes', noteId], { fields: ['id', 'updated_time'] });
+    return Number(meta.updated_time || 0);
+}
+async function fetchDriveModified(drive, fileId) {
+    const fileMeta = await drive.files.get({ fileId, fields: 'id, modifiedTime' });
+    return Date.parse((fileMeta.data && fileMeta.data.modifiedTime) || 0);
+}
+async function fetchDocRevisionId(docs, fileId) {
+    const docRes = await docs.documents.get({ documentId: fileId });
+    return String(docRes.data.revisionId || '');
+}
+function decideAction(args) {
+    const { lastKnownRevisionId, currentRevisionId, noteUpdated, docModified, lastSyncTs } = args;
+    const lastSync = Number(lastSyncTs || 0);
+    const docNewer = !!(lastKnownRevisionId && currentRevisionId && lastKnownRevisionId !== currentRevisionId);
+    if (docNewer)
+        return { action: 'pull', reason: 'docRevisionChanged' };
+    const noteNewer = noteUpdated > Math.max(docModified || 0, lastSync || 0);
+    return noteNewer ? { action: 'push', reason: 'noteUpdatedAfterDoc' } : { action: 'pull', reason: 'defaultPull' };
+}
+async function executePull(j, docs, installDir, noteId, fileId) {
+    const sel = await (0, structure_1.buildConversionDocFromTabs)(docs, fileId, { tabId: undefined });
+    const convertDoc = sel.convertDoc;
+    const md = (0, converter_1.convertDocumentToMarkdown)(convertDoc, { installDir });
+    await j.data.put(['notes', noteId], null, { body: md });
+}
+async function updateMappingAfterPull(dataDir, docs, noteId, fileId) {
+    const docMeta = await docs.documents.get({ documentId: fileId });
+    const docRevisionId = String(docMeta.data.revisionId || '');
+    const mapping = (0, mapping_1.loadMapping)(dataDir);
+    const nb = (mapping.notes[noteId] || {});
+    nb.fileId = fileId;
+    if (docRevisionId)
+        nb.lastKnownRevisionId = docRevisionId;
+    nb.lastSyncTs = Date.now();
+    mapping.notes[noteId] = nb;
+    (0, mapping_1.saveMapping)(dataDir, mapping);
+}
+async function executePush(j, googleApi, auth, installDir, dataDir, noteId) {
+    await (0, pushNote_1.pushNoteById)({ j, google: googleApi, auth, installDir, dataDir, noteId });
+}
