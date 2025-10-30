@@ -147,6 +147,21 @@ console.warn('[gdocs] root index executing');
       }
     }
 
+    async function openPickerCmd() {
+      try {
+        const path = require('path');
+        const installDir = (await j.plugins.installationDir()) || '';
+        const dataDir = await j.plugins.dataDir();
+        const mod = require(path.resolve(installDir, 'dist/commands/drivePickerDialog.js'));
+        const res = await mod.openDrivePickerDialog({ j, installDir, dataDir });
+        await j.views.dialogs.showMessageBox('Drive picker completed. selected=' + res.selected.length + ' created=' + res.created + ' bound=' + res.bound);
+      } catch (e) {
+        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+        await j.views.dialogs.showMessageBox('Picker error: ' + msg);
+      }
+    }
+
     j.plugins.register({
       onStart: async () => {
         await j.commands.register({ name: 'gdocsHello', label: 'Google Docs Sync: Hello', execute: async () => { await j.views.dialogs.showMessageBox('Google Docs plugin is active.'); } });
@@ -158,6 +173,7 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsCreateFromNote', label: 'Google Docs Sync: Create Doc from Note', execute: async () => { await createFromNoteCmd(); } });
         await j.commands.register({ name: 'gdocsAutoPair', label: 'Google Docs Sync: Auto Pair Folder', execute: async () => { await autoPairFolder(); } });
         await j.commands.register({ name: 'gdocsMigrateToAppDoc', label: 'Google Docs Sync: Migrate to App Doc', execute: async () => { await migrateToAppDocCmd(); } });
+        await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
         await j.views.menuItems.create('gdocsHelloMenu','gdocsHello', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Hello' });
         await j.views.menuItems.create('gdocsPollOnceMenu','gdocsPollOnce', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Poll Once (log-only)' });
         await j.views.menuItems.create('gdocsBindMenu','gdocsBind', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Bind note' });
@@ -167,6 +183,7 @@ console.warn('[gdocs] root index executing');
         await j.views.menuItems.create('gdocsCreateFromNoteMenu','gdocsCreateFromNote', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Create Doc from Note' });
         await j.views.menuItems.create('gdocsMigrateMenu','gdocsMigrateToAppDoc', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Migrate to App Doc' });
         await j.views.menuItems.create('gdocsAutoPairMenu','gdocsAutoPair', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Auto Pair Folder' });
+        await j.views.menuItems.create('gdocsPickerMenu','gdocsPicker', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Import/Bind (Dialog)' });
       },
     });
   } catch (_) { /* ignore */ }
