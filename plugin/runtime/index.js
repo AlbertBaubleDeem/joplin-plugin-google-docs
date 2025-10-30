@@ -162,9 +162,40 @@ console.warn('[gdocs] root index executing');
       }
     }
 
+    async function exportNotebookCmd() {
+      try {
+        const path = require('path');
+        const installDir = (await j.plugins.installationDir()) || '';
+        const dataDir = await j.plugins.dataDir();
+        
+        // Check if a folder is selected
+        const folder = await j.workspace.selectedFolder();
+        if (!folder) {
+          await j.views.dialogs.showMessageBox('Please select a notebook first');
+          return;
+        }
+        
+        const mod = require(path.resolve(installDir, 'dist/commands/exportNotebook.js'));
+        const res = await mod.exportNotebook({ j, installDir, dataDir, folderId: folder.id });
+        if (res) {
+          await j.views.dialogs.showMessageBox(
+            `Successfully exported notebook as multi-tab Google Doc.\n` +
+            `File ID: ${res.fileId}\n` +
+            `Notes exported: ${res.noteCount}`
+          );
+        }
+      } catch (e) {
+        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+        await j.views.dialogs.showMessageBox('Export notebook error: ' + msg);
+      }
+    }
+
     j.plugins.register({
       onStart: async () => {
+        console.log('[gdocs] Plugin onStart called');
         await j.commands.register({ name: 'gdocsHello', label: 'Google Docs Sync: Hello', execute: async () => { await j.views.dialogs.showMessageBox('Google Docs plugin is active.'); } });
+        console.log('[gdocs] Registered gdocsHello command');
         await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once (log-only)', execute: async () => { await pollOnce(); } });
         await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
@@ -174,16 +205,23 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsAutoPair', label: 'Google Docs Sync: Auto Pair Folder', execute: async () => { await autoPairFolder(); } });
         await j.commands.register({ name: 'gdocsMigrateToAppDoc', label: 'Google Docs Sync: Migrate to App Doc', execute: async () => { await migrateToAppDocCmd(); } });
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
-        await j.views.menuItems.create('gdocsHelloMenu','gdocsHello', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Hello' });
-        await j.views.menuItems.create('gdocsPollOnceMenu','gdocsPollOnce', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Poll Once (log-only)' });
-        await j.views.menuItems.create('gdocsBindMenu','gdocsBind', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Bind note' });
-        await j.views.menuItems.create('gdocsUnbindMenu','gdocsUnbind', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Unbind note' });
-        await j.views.menuItems.create('gdocsPullNowMenu','gdocsPullNow', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Pull (update note)' });
-        await j.views.menuItems.create('gdocsPushNowMenu','gdocsPushNow', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Push (update Doc)' });
-        await j.views.menuItems.create('gdocsCreateFromNoteMenu','gdocsCreateFromNote', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Create Doc from Note' });
-        await j.views.menuItems.create('gdocsMigrateMenu','gdocsMigrateToAppDoc', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Migrate to App Doc' });
-        await j.views.menuItems.create('gdocsAutoPairMenu','gdocsAutoPair', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Auto Pair Folder' });
-        await j.views.menuItems.create('gdocsPickerMenu','gdocsPicker', j.views.menus.MenuItemLocation.Tools, { label: 'Google Docs Sync: Import/Bind (Dialog)' });
+        await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook', execute: async () => { await exportNotebookCmd(); } });
+        
+        // Add notebook export to folder context menu
+        await j.views.menuItems.create('notebookExportMenu', 'gdocsExportNotebook', 'folderContextMenu');
+        
+        // Register custom note list renderer with sync status indicators
+        try {
+          const path = require('path');
+          const installDir = (await j.plugins.installationDir()) || '';
+          const dataDir = await j.plugins.dataDir();
+          const { createSyncStatusRenderer } = require(path.resolve(installDir, 'dist/noteListRenderer.js'));
+          const renderer = createSyncStatusRenderer(dataDir);
+          await j.views.noteList.registerRenderer(renderer);
+          console.log('[gdocs] Registered note list renderer with sync status');
+        } catch (e) {
+          console.warn('[gdocs] Failed to register note list renderer:', e);
+        }
       },
     });
   } catch (_) { /* ignore */ }

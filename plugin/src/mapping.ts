@@ -8,9 +8,15 @@ export type NoteBinding = {
   lastSyncTs?: number;
 };
 
+export type NotebookBinding = {
+  fileId: string;                     // Google Doc ID for this notebook
+  noteIds: string[];                  // Notes synced as tabs
+  lastSyncTs?: number;
+};
+
 export type Mapping = {
   notes: Record<string, NoteBinding>;
-  notebooks: Record<string, { fileId?: string }>;
+  notebooks: Record<string, NotebookBinding>;  // UPDATED: track full notebook info
   syncFolderId?: string;
 };
 

@@ -31,6 +31,8 @@ export type MultiDecision = {
 
 export type StructuralDecision = SingleDecision | MultiDecision;
 
+// Note: The BindingStrategy classes below are no longer actively used
+// but kept for potential future multi-tab support
 export interface BindingStrategy {
   analyze(doc: DocLike): StructureAnalysis;
   decide(doc: DocLike, analysis: StructureAnalysis): StructuralDecision;

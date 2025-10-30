@@ -1,0 +1,31 @@
+feat: implement visual sync indicators and notebook export foundation
+
+Add custom note list renderer showing sync status icons (📄 for single doc, 
+📚 for notebook sync) and implement notebook export to multi-tab Google Docs.
+
+Changes to note list rendering:
+- Create custom renderer extending default compact view with sync icons
+- Icons appear left of note titles with hover tooltips
+- Extend mapping types to track syncMode ('single' | 'notebook')
+- Register renderer on plugin startup
+
+Notebook export implementation:
+- Add exportNotebook command for creating multi-tab Google Docs
+- Support ordering tabs by note creation time (user_created_time)
+- Check Google Docs limits: max 100 tabs, 1.02M total characters
+- Handle migration of individually synced notes to notebook sync
+  - Rename legacy docs to "(Legacy)" suffix
+  - Update all bindings to notebook mode
+- Add right-click context menu on folders: "Export as Multi-tab Google Doc"
+
+Infrastructure additions:
+- Extend NoteBinding with syncMode and parentNotebookId tracking
+- Create NotebookBinding type for notebook-level sync metadata  
+- Add helper functions for character limits and tab mapping
+- Store notebook sync info in Drive appProperties
+
+This provides the foundation for notebook-level sync. Next steps include
+implementing the sync logic for individual tabs and conversion commands.
+
+Addresses user request for visual indicators and notebook export feature
+as specified in NOTEBOOK_EXPORT_PLAN.md.
