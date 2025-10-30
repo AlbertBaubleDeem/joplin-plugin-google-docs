@@ -6,8 +6,10 @@
 // - Monospace+shaded/bordered paragraphs → fenced code blocks (if enabled)
 // - Subtitle italic per mapping
 // - Remove variable PUA markers, normalize special whitespace
+// - Paragraphs joined with blank lines (Markdown convention)
 // Push (MD→Docs):
 // - Parse Markdown to plain text and style ranges
+// - Skip empty lines (Google Docs handles spacing via paragraph styles)
 // - Later applied with Docs API (batchUpdate)
 
 import * as fs from 'fs';
@@ -209,6 +211,9 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
     const original = lines[i];
     const fenceMatch = original.match(/^```/);
     if (fenceMatch) { inFence = !inFence; continue; }
+    
+    // Skip empty lines - Google Docs handles paragraph spacing via styles
+    if (!inFence && original.trim() === '') continue;
 
     const namedStyleType = inFence ? 'CODEBLOCK' : paragraphStyleFor(original);
     let line = inFence ? original : stripHeadingMarkers(original);
