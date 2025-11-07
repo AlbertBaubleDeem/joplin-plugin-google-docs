@@ -15,7 +15,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-type TextStyle = { bold?: boolean; italic?: boolean; weightedFontFamily?: { fontFamily?: string } };
+type TextStyle = { 
+  bold?: boolean; 
+  italic?: boolean; 
+  weightedFontFamily?: { fontFamily?: string };
+  link?: { url?: string };
+};
 
 export type MappingConfig = {
   title?: { useTitle?: boolean; source?: string };
@@ -85,6 +90,13 @@ const DEFAULT_HEADING_STYLE_BY_KEY: Record<string, string> = {
 // Applies inline MD emphasis markers based on Docs TextStyle
 function applyInline(md: string, style?: TextStyle): string {
   if (!style) return md;
+  
+  // Handle links first
+  if (style.link?.url) {
+    md = `[${md}](${style.link.url})`;
+  }
+  
+  // Then apply bold/italic
   const isBold = !!style.bold;
   const isItalic = !!style.italic;
   if (isBold && isItalic) return `***${md}***`;
@@ -166,7 +178,7 @@ export function convertDocumentToMarkdown(doc: any, opts?: { installDir?: string
 // --- Markdown → Docs (for push) ---
 
 export type ParaRange = { start: number; end: number; style: string };
-export type TextRange = { start: number; end: number; bold?: boolean; italic?: boolean; codeMono?: boolean };
+export type TextRange = { start: number; end: number; bold?: boolean; italic?: boolean; codeMono?: boolean; linkUrl?: string };
 
 // Public: load mapping config for callers outside this module (identical to internal loader)
 export function loadMdMappingConfig(installDir?: string): MappingConfig {
@@ -255,6 +267,33 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
         re.lastIndex = m.index + inner.length;
       }
     };
+    // Extract links before other inline formatting
+    // Pattern: [text](url)
+    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+    let linkMatch: RegExpExecArray | null;
+    let linkOffset = 0;
+    while ((linkMatch = linkRegex.exec(line)) !== null) {
+      const fullMatch = linkMatch[0];
+      const linkText = linkMatch[1];
+      const linkUrl = linkMatch[2];
+      const startInLine = linkMatch.index - linkOffset;
+      const endInLine = startInLine + linkText.length;
+      
+      // Skip if overlaps with code
+      if (overlapsSkip(startInLine, endInLine)) { 
+        linkRegex.lastIndex = linkMatch.index + fullMatch.length; 
+        continue; 
+      }
+      
+      // Record link range
+      textRanges.push({ start: cursor + startInLine, end: cursor + endInLine, linkUrl });
+      
+      // Replace [text](url) with just text
+      line = line.slice(0, linkMatch.index) + linkText + line.slice(linkMatch.index + fullMatch.length);
+      linkOffset += fullMatch.length - linkText.length;
+      linkRegex.lastIndex = linkMatch.index + linkText.length;
+    }
+
     applyInline(/\*\*([^*]+)\*\*/g, (s, e) => textRanges.push({ start: s, end: e, bold: true }));
     applyInline(/\*([^*]+)\*/g, (s, e) => textRanges.push({ start: s, end: e, italic: true }));
     applyInline(/_([^_]+)_/g, (s, e) => textRanges.push({ start: s, end: e, italic: true }));
@@ -315,17 +354,35 @@ export function buildDocsStyleUpdateRequests(
 
   const textReqs = textRanges
     .map(r => {
-      const fields = [r.bold ? 'bold' : null, r.italic ? 'italic' : null].filter(Boolean).join(',');
+      const fieldList = [];
+      const textStyle: any = {};
+      
+      if (r.bold !== undefined) {
+        fieldList.push('bold');
+        textStyle.bold = !!r.bold;
+      }
+      if (r.italic !== undefined) {
+        fieldList.push('italic');
+        textStyle.italic = !!r.italic;
+      }
+      if (r.linkUrl !== undefined) {
+        fieldList.push('link');
+        textStyle.link = { url: r.linkUrl };
+      }
+      
+      const fields = fieldList.join(',');
+      if (!fields) return null;
+      
       return {
         updateTextStyle: {
           range: { startIndex: r.start + 1, endIndex: r.end + 1 },
-          textStyle: { bold: !!r.bold, italic: !!r.italic },
+          textStyle,
           fields,
         },
       };
     })
     // Drop requests that would have empty fields (e.g., pure codeMono spans handled separately)
-    .filter(req => !!req.updateTextStyle.fields);
+    .filter(req => !!req && req.updateTextStyle.fields);
 
   // Enforce monospace font for CODEBLOCK paragraphs and inline code. Caller provides preferred font.
   const monoFont = (opts && opts.monoFont) || 'Roboto Mono';
