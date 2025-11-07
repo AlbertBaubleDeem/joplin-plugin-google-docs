@@ -268,35 +268,154 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
       }
     };
     // Extract links before other inline formatting
-    // Pattern: [text](url)
+    // First, handle image links to preserve them as-is
+    // Pattern: ![alt text](:/resourceId) or ![alt text](:/resourceId "title")
+    const imageRegex = /!\[([^\]]*)\]\(:[^)]+\)/g;
+    const imagePositions: Array<{ start: number; end: number }> = [];
+    let imgMatch: RegExpExecArray | null;
+    while ((imgMatch = imageRegex.exec(line)) !== null) {
+      imagePositions.push({ start: imgMatch.index, end: imgMatch.index + imgMatch[0].length });
+    }
+    
+    // Process all inline elements in correct order
+    // First, identify all elements and their positions
+    const elements: Array<{
+      type: 'link' | 'bold' | 'italic' | 'code';
+      start: number;
+      end: number;
+      content?: string;
+      url?: string;
+      fullMatch: string;
+    }> = [];
+    
+    // Find all links
     const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
     let linkMatch: RegExpExecArray | null;
-    let linkOffset = 0;
     while ((linkMatch = linkRegex.exec(line)) !== null) {
       const fullMatch = linkMatch[0];
       const linkText = linkMatch[1];
       const linkUrl = linkMatch[2];
-      const startInLine = linkMatch.index - linkOffset;
-      const endInLine = startInLine + linkText.length;
+      const matchStart = linkMatch.index;
+      const matchEnd = matchStart + fullMatch.length;
       
-      // Skip if overlaps with code
-      if (overlapsSkip(startInLine, endInLine)) { 
-        linkRegex.lastIndex = linkMatch.index + fullMatch.length; 
-        continue; 
+      // Skip image links
+      const isImageLink = imagePositions.some(img => 
+        (matchStart >= img.start && matchStart < img.end) || 
+        (matchEnd > img.start && matchEnd <= img.end)
+      );
+      if (isImageLink) continue;
+      
+      // Skip internal resource links
+      if (linkUrl.startsWith(':/')) continue;
+      
+      // Skip if in code
+      if (overlapsSkip(matchStart, matchEnd - matchStart)) continue;
+      
+      elements.push({
+        type: 'link',
+        start: matchStart,
+        end: matchEnd,
+        content: linkText,
+        url: linkUrl,
+        fullMatch: fullMatch
+      });
+    }
+    
+    // Find bold patterns
+    let boldMatch: RegExpExecArray | null;
+    const boldRegex = /\*\*([^*]+)\*\*/g;
+    while ((boldMatch = boldRegex.exec(line)) !== null) {
+      if (!overlapsSkip(boldMatch.index, boldMatch.index + boldMatch[0].length)) {
+        elements.push({
+          type: 'bold',
+          start: boldMatch.index,
+          end: boldMatch.index + boldMatch[0].length,
+          content: boldMatch[1],
+          fullMatch: boldMatch[0]
+        });
+      }
+    }
+    
+    // Find italic patterns (both * and _)
+    const italicPatterns = [/\*([^*]+)\*/g, /_([^_]+)_/g];
+    for (const italicRegex of italicPatterns) {
+      let italicMatch: RegExpExecArray | null;
+      while ((italicMatch = italicRegex.exec(line)) !== null) {
+        const matchIndex = italicMatch.index;
+        const matchLength = italicMatch[0].length;
+        const matchContent = italicMatch[1];
+        
+        // Make sure this isn't part of bold
+        const isBold = elements.some(el => 
+          el.type === 'bold' && 
+          matchIndex >= el.start && 
+          matchIndex + matchLength <= el.end
+        );
+        if (!isBold && !overlapsSkip(matchIndex, matchIndex + matchLength)) {
+          elements.push({
+            type: 'italic',
+            start: matchIndex,
+            end: matchIndex + matchLength,
+            content: matchContent,
+            fullMatch: italicMatch[0]
+          });
+        }
+      }
+    }
+    
+    // Sort elements by position (for processing order)
+    elements.sort((a, b) => a.start - b.start);
+    
+    // Process from right to left
+    let processedLine = line;
+    let totalOffset = 0;
+    
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const element = elements[i];
+      
+      // Calculate how much offset this element will create
+      const elementOffset = element.fullMatch.length - element.content!.length;
+      
+      // Calculate position in final text
+      let finalOffset = 0;
+      for (let j = 0; j < i; j++) {
+        const prevElement = elements[j];
+        finalOffset -= prevElement.fullMatch.length - prevElement.content!.length;
       }
       
-      // Record link range
-      textRanges.push({ start: cursor + startInLine, end: cursor + endInLine, linkUrl });
+      const finalStart = element.start + finalOffset;
+      const finalEnd = finalStart + element.content!.length;
       
-      // Replace [text](url) with just text
-      line = line.slice(0, linkMatch.index) + linkText + line.slice(linkMatch.index + fullMatch.length);
-      linkOffset += fullMatch.length - linkText.length;
-      linkRegex.lastIndex = linkMatch.index + linkText.length;
+      // Add to text ranges based on type
+      switch (element.type) {
+        case 'link':
+          textRanges.push({
+            start: cursor + finalStart,
+            end: cursor + finalEnd,
+            linkUrl: element.url
+          });
+          break;
+        case 'bold':
+          textRanges.push({
+            start: cursor + finalStart,
+            end: cursor + finalEnd,
+            bold: true
+          });
+          break;
+        case 'italic':
+          textRanges.push({
+            start: cursor + finalStart,
+            end: cursor + finalEnd,
+            italic: true
+          });
+          break;
+      }
+      
+      // Replace in line
+      processedLine = processedLine.substring(0, element.start) + element.content + processedLine.substring(element.end);
     }
-
-    applyInline(/\*\*([^*]+)\*\*/g, (s, e) => textRanges.push({ start: s, end: e, bold: true }));
-    applyInline(/\*([^*]+)\*/g, (s, e) => textRanges.push({ start: s, end: e, italic: true }));
-    applyInline(/_([^_]+)_/g, (s, e) => textRanges.push({ start: s, end: e, italic: true }));
+    
+    line = processedLine;
 
     const start = cursor;
     plain += line + '\n';
