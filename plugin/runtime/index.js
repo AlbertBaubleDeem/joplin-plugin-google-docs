@@ -179,8 +179,8 @@ console.warn('[gdocs] root index executing');
         const res = await mod.exportNotebook({ j, installDir, dataDir, folderId: folder.id });
         if (res) {
           await j.views.dialogs.showMessageBox(
-            `Successfully exported notebook as multi-tab Google Doc.\n` +
-            `File ID: ${res.fileId}\n` +
+            `Successfully exported notebook to Google Drive folder.\n` +
+            `Folder ID: ${res.fileId}\n` +
             `Notes exported: ${res.noteCount}`
           );
         }
@@ -205,7 +205,7 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsAutoPair', label: 'Google Docs Sync: Auto Pair Folder', execute: async () => { await autoPairFolder(); } });
         await j.commands.register({ name: 'gdocsMigrateToAppDoc', label: 'Google Docs Sync: Migrate to App Doc', execute: async () => { await migrateToAppDocCmd(); } });
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
-        await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook', execute: async () => { await exportNotebookCmd(); } });
+        await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook to Drive Folder', execute: async () => { await exportNotebookCmd(); } });
         
         // Add notebook export to folder context menu
         await j.views.menuItems.create('notebookExportMenu', 'gdocsExportNotebook', 'folderContextMenu');

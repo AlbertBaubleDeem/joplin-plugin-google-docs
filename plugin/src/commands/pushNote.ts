@@ -7,6 +7,7 @@ import {
 } from '../mapping';
 import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converter';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
+import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
 
 /**
  * Parameters for pushNote command
@@ -39,8 +40,8 @@ async function executePush(
 ): Promise<{ newRevisionId: string }> {
   const { docs, installDir } = ctx;
 
-  // Read note body (Markdown)
-  const note = await j.data.get(['notes', noteId], { fields: ['id', 'title', 'body'] });
+  // Read note body (Markdown) using NoteOperations
+  const note = await getNoteById(j, noteId, ['id', 'title', 'body']);
   const mdRaw: string = String(note.body ?? '');
   
   // Convert Markdown to plain text and style ranges
@@ -132,15 +133,8 @@ export async function pushNote(params: Params): Promise<PushResult> {
   // Create sync context with authenticated API clients
   const ctx = await createSyncContext(installDir, dataDir);
 
-  // Determine the note ID
-  let noteId: string;
-  if (params.noteId) {
-    noteId = params.noteId;
-  } else {
-    const selected = await j.workspace.selectedNoteIds();
-    if (!selected || !selected.length) throw new Error('No selected note.');
-    noteId = selected[0];
-  }
+  // Determine the note ID using NoteOperations
+  const noteId = params.noteId || await getSelectedNoteId(j);
 
   // Get binding and validate
   const binding = getBinding(dataDir, noteId);
