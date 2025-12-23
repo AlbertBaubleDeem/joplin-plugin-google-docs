@@ -2,12 +2,18 @@
  * Converter Debug Utilities
  * 
  * Provides logging and inspection tools for debugging conversions.
+ * Logs to both console and file for easier debugging in Joplin.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { IRDocument, Paragraph, StyledSpan, ConversionDebug } from './types';
 
 /** Whether debug mode is enabled */
 let debugEnabled = false;
+
+/** Path to debug log file */
+let debugLogPath: string | null = null;
 
 /** Debug log history */
 const debugLog: ConversionDebug[] = [];
@@ -17,9 +23,24 @@ const MAX_LOG_ENTRIES = 100;
 
 /**
  * Enable or disable debug mode.
+ * 
+ * @param enabled - Whether to enable debug mode
+ * @param logDir - Optional directory for log file (e.g., dataDir)
  */
-export function setDebugMode(enabled: boolean): void {
+export function setDebugMode(enabled: boolean, logDir?: string): void {
   debugEnabled = enabled;
+  
+  if (enabled && logDir) {
+    debugLogPath = path.join(logDir, 'converter-debug.log');
+    // Clear previous log
+    try {
+      fs.writeFileSync(debugLogPath, `=== Converter Debug Log ===\nStarted: ${new Date().toISOString()}\n\n`);
+    } catch (e) {
+      console.error('[converter] Failed to create debug log file:', e);
+    }
+  } else {
+    debugLogPath = null;
+  }
 }
 
 /**
@@ -27,6 +48,13 @@ export function setDebugMode(enabled: boolean): void {
  */
 export function isDebugEnabled(): boolean {
   return debugEnabled;
+}
+
+/**
+ * Get the debug log file path.
+ */
+export function getDebugLogPath(): string | null {
+  return debugLogPath;
 }
 
 /**
@@ -53,8 +81,20 @@ export function debug(step: string, input: string, output: any): void {
     debugLog.shift();
   }
   
-  // Also log to console
+  // Log to console
   console.log(`[converter:${step}] ${input}:`, output);
+  
+  // Log to file
+  if (debugLogPath) {
+    try {
+      const timestamp = new Date().toISOString();
+      const serialized = JSON.stringify(safeSerialize(output), null, 2);
+      const logEntry = `[${timestamp}] ${step} | ${input}:\n${serialized}\n\n`;
+      fs.appendFileSync(debugLogPath, logEntry);
+    } catch (e) {
+      // Ignore file write errors
+    }
+  }
 }
 
 /**

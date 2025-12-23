@@ -32,7 +32,7 @@ export * from './types';
 export { loadConfig, setInstallDir, getMonoFont, clearConfigCache } from './config';
 
 // Re-export debug utilities
-export { setDebugMode, isDebugEnabled, getDebugLog, clearDebugLog, formatIRDocument } from './debug';
+export { setDebugMode, isDebugEnabled, getDebugLog, clearDebugLog, formatIRDocument, getDebugLogPath } from './debug';
 
 // Re-export core conversion functions
 export { markdownToIR } from './md-to-ir';
