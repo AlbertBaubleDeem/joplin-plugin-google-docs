@@ -5,8 +5,7 @@ import {
   getBinding,
   setDriveAppProperties,
 } from '../mapping';
-import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests, loadMdMappingConfig } from '../converter';
-import { processImages, buildImageInsertRequests } from '../imageHandler';
+import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converter';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
 
 /**
@@ -38,15 +37,15 @@ async function executePush(
   noteId: string,
   fileId: string
 ): Promise<{ newRevisionId: string }> {
-  const { docs, drive, installDir, dataDir } = ctx;
+  const { docs, installDir } = ctx;
 
   // Read note body (Markdown)
   const note = await j.data.get(['notes', noteId], { fields: ['id', 'title', 'body'] });
   const mdRaw: string = String(note.body ?? '');
-  const { plain, paraRanges, textRanges, imageRanges } = convertMarkdownToPlainAndStyles(mdRaw, { installDir });
-
-  const mappingCfg = loadMdMappingConfig(installDir);
-  const monoFont = mappingCfg?.code?.monoFont || 'Roboto Mono';
+  
+  // Convert Markdown to plain text and style ranges
+  // The converter handles all formatting decisions including monoFont
+  const { plain, paraRanges, textRanges } = convertMarkdownToPlainAndStyles(mdRaw, { installDir });
 
   // Get current doc state to obtain revisionId and endIndex
   const docRes = await docs.documents.get({ documentId: fileId });
@@ -76,36 +75,11 @@ async function executePush(
   const afterRes = await docs.documents.get({ documentId: fileId });
   const newRevisionId: string = String((afterRes.data as any).revisionId || '');
 
-  // Apply paragraph and inline styles using converter heuristics
-  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { monoFont });
+  // Apply paragraph and inline styles
+  // buildDocsStyleUpdateRequests handles monoFont internally via config
+  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
   if (styleReqs.length) {
     await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: styleReqs } });
-  }
-
-  // Process and insert images if present
-  if (imageRanges && imageRanges.length > 0) {
-    const mapping = loadMapping(dataDir);
-    const syncFolderId = mapping.syncFolderId;
-
-    if (syncFolderId) {
-      try {
-        // Upload images to Drive
-        const resourceIdToDriveId = await processImages(j, drive, imageRanges, syncFolderId);
-
-        // Build image insertion requests
-        const imageRequests = buildImageInsertRequests(imageRanges, resourceIdToDriveId);
-
-        if (imageRequests.length > 0) {
-          await docs.documents.batchUpdate({
-            documentId: fileId,
-            requestBody: { requests: imageRequests },
-          });
-        }
-      } catch (imageError: any) {
-        console.error('Image insertion error:', imageError);
-        // Continue with the push even if images fail - content is already saved
-      }
-    }
   }
 
   return { newRevisionId };

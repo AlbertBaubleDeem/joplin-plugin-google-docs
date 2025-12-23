@@ -445,12 +445,16 @@ export function convertMarkdownToPlainAndStyles(mdRaw: string, opts?: { installD
 
 // Build Docs API requests to apply paragraph and text styles based on the
 // ranges produced by convertMarkdownToPlainAndStyles. All visual heuristics
-// (e.g., CODEBLOCK styling) live here to keep pushNote.ts logic thin.
+// (e.g., CODEBLOCK styling, monospace font) live here to keep command logic thin.
 export function buildDocsStyleUpdateRequests(
   paraRanges: ParaRange[],
   textRanges: TextRange[],
-  opts?: { monoFont?: string },
+  opts?: { installDir?: string },
 ): any[] {
+  // Load mapping config to get monoFont preference (consolidates formatting logic here)
+  const mapping = loadMappingConfig(opts?.installDir);
+  const monoFont = mapping?.code?.monoFont || 'Roboto Mono';
+
   const paraReqs = paraRanges
     .filter(r => r.end >= r.start)
     .map(r => ({
@@ -503,9 +507,7 @@ export function buildDocsStyleUpdateRequests(
     // Drop requests that would have empty fields (e.g., pure codeMono spans handled separately)
     .filter(req => !!req && req.updateTextStyle.fields);
 
-  // Enforce monospace font for CODEBLOCK paragraphs and inline code. Caller provides preferred font.
-  const monoFont = (opts && opts.monoFont) || 'Roboto Mono';
-  // Inline code spans → monospace font
+  // Enforce monospace font for CODEBLOCK paragraphs and inline code
   const codeInlineReqs = textRanges
     .filter(r => r.codeMono && r.end > r.start)
     .map(r => ({

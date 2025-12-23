@@ -163,8 +163,8 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
       },
     });
 
-    // Apply formatting
-    const formatRequests = buildDocsStyleUpdateRequests(paraRanges, textRanges, { monoFont: 'Roboto Mono' });
+    // Apply formatting (monoFont is handled internally by converter)
+    const formatRequests = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
     batchRequests.push(...formatRequests);
 
     // Apply the content and formatting
