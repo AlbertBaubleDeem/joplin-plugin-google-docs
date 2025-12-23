@@ -144,16 +144,27 @@ console.warn('[gdocs] root index executing');
 
     async function toggleConverterDebug() {
       const path = require('path');
+      const fs = require('fs');
       const installDir = (await j.plugins.installationDir()) || '';
       const dataDir = await j.plugins.dataDir();
+      
+      console.log('[gdocs] dataDir:', dataDir);
+      console.log('[gdocs] installDir:', installDir);
+      
       const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
       
       converterDebugEnabled = !converterDebugEnabled;
       converter.setDebugMode(converterDebugEnabled, dataDir);
       
       const logPath = converter.getDebugLogPath();
+      console.log('[gdocs] Debug enabled:', converterDebugEnabled, 'logPath:', logPath);
+      
       if (converterDebugEnabled && logPath) {
-        await j.views.dialogs.showMessageBox(`Converter debug ENABLED.\nLog file: ${logPath}`);
+        // Verify the file was created
+        const exists = fs.existsSync(logPath);
+        await j.views.dialogs.showMessageBox(
+          `Converter debug ENABLED.\n\nLog file: ${logPath}\nFile exists: ${exists}\nDataDir: ${dataDir}`
+        );
       } else {
         await j.views.dialogs.showMessageBox('Converter debug DISABLED.');
       }
@@ -165,15 +176,24 @@ console.warn('[gdocs] root index executing');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
         
-        // Enable debug mode if toggled on
+        // Enable debug mode if toggled on - MUST be done before requiring commands
         if (converterDebugEnabled) {
+          console.log('[gdocs] Enabling converter debug for push');
           const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
           converter.setDebugMode(true, dataDir);
+          console.log('[gdocs] Debug mode set, isEnabled:', converter.isDebugEnabled());
         }
         
         const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
         const res = await mod.pushNote({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
+        
+        if (converterDebugEnabled) {
+          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
+          const logPath = converter.getDebugLogPath();
+          await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId + '\n\nDebug log: ' + logPath);
+        } else {
+          await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
+        }
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);

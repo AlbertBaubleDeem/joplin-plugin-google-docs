@@ -29,16 +29,19 @@ const MAX_LOG_ENTRIES = 100;
  */
 export function setDebugMode(enabled: boolean, logDir?: string): void {
   debugEnabled = enabled;
+  console.log('[converter] setDebugMode called:', enabled, 'logDir:', logDir);
   
   if (enabled && logDir) {
     debugLogPath = path.join(logDir, 'converter-debug.log');
-    // Clear previous log
+    // Clear previous log or append
     try {
-      fs.writeFileSync(debugLogPath, `=== Converter Debug Log ===\nStarted: ${new Date().toISOString()}\n\n`);
+      const header = `\n=== Converter Debug Session ===\nStarted: ${new Date().toISOString()}\nDebug enabled: ${enabled}\n\n`;
+      fs.appendFileSync(debugLogPath, header);
+      console.log('[converter] Debug log path set to:', debugLogPath);
     } catch (e) {
-      console.error('[converter] Failed to create debug log file:', e);
+      console.error('[converter] Failed to write debug log file:', e);
     }
-  } else {
+  } else if (!enabled) {
     debugLogPath = null;
   }
 }
@@ -65,6 +68,7 @@ export function getDebugLogPath(): string | null {
  * @param output - The output or intermediate state
  */
 export function debug(step: string, input: string, output: any): void {
+  console.log('[converter:debug] called:', step, input, 'debugEnabled:', debugEnabled);
   if (!debugEnabled) return;
   
   const entry: ConversionDebug = {

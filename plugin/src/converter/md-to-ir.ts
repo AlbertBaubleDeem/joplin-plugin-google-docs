@@ -20,11 +20,14 @@ import { debug } from './debug';
 export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocument {
   const cfg = config || loadConfig();
   
+  console.log('[converter] markdownToIR called, input length:', markdown.length);
+  
   // Normalize line endings
   const normalized = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   
   // Use marked's lexer to tokenize
   const tokens = marked.lexer(normalized);
+  console.log('[converter] tokens generated:', tokens.length);
   debug('md-to-ir', 'tokens', tokens);
   
   // Convert tokens to IR paragraphs

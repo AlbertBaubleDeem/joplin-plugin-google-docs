@@ -65,18 +65,17 @@ function paragraphToMarkdown(para: Paragraph, config: ConverterConfig): string |
   // Get prefix for paragraph type
   const prefix = getPrefix(para, config);
   
-  // Convert spans to inline Markdown
-  const content = spansToMarkdown(para.spans, config);
-  
-  // Skip empty paragraphs
-  if (content.trim() === '' && prefix === '') {
-    return null;
-  }
-  
-  // Handle subtitle as italic
+  // Handle subtitle as italic - strip italic from spans since whole paragraph is italic
   if (para.type === 'subtitle' && config.subtitle?.mode === 'italic') {
+    // Remove italic flag from spans to avoid double-wrapping
+    const spansWithoutItalic = para.spans.map(s => ({ ...s, italic: undefined }));
+    const content = spansToMarkdown(spansWithoutItalic, config);
+    if (content.trim() === '') return null;
     return `_${content}_`;
   }
+  
+  // Convert spans to inline Markdown
+  const content = spansToMarkdown(para.spans, config);
   
   return prefix + content;
 }
