@@ -58,13 +58,8 @@ export async function createFromNote(params: Params): Promise<CreateResult> {
   // Ensure sync folder exists
   const syncFolderId = await ensureSyncFolder(ctx.drive, dataDir);
 
-  // Determine the note ID
-  let noteId: string;
-  if (params.noteId) {
-    noteId = params.noteId;
-  } else {
-    noteId = await getSelectedNoteId(j);
-  }
+  // Determine the note ID using NoteOperations
+  const noteId = params.noteId || await getSelectedNoteId(j);
 
   // Get note title
   const note = await getNoteById(j, noteId, ['id', 'title']);

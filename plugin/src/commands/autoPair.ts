@@ -12,7 +12,7 @@ import {
   PLUGIN_ID,
 } from '../mapping';
 import { ensureSyncFolder } from '../services/SyncFolderManager';
-import { determineTargetFolder } from '../services/NoteOperations';
+import { determineTargetFolder, createNote } from '../services/NoteOperations';
 
 /**
  * Parameters for autoPair command
@@ -106,12 +106,8 @@ export async function autoPair(params: AutoPairParams): Promise<AutoPairResult> 
         continue;
       }
 
-      // Create a new Joplin note and bind
-      const newNote = await j.data.post(['notes'], null, {
-        title: name,
-        body: '',
-        parent_id: targetFolderId,
-      });
+      // Create a new Joplin note and bind using NoteOperations
+      const newNote = await createNote(j, name, '', targetFolderId);
 
       await setDriveAppProperties(drive as unknown as DriveLike, fileId, {
         joplinNoteId: newNote.id,

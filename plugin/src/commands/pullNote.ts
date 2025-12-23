@@ -6,7 +6,7 @@ import { loadMapping, saveMapping } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
 import { convertDocumentToMarkdown } from '../converter';
 import { createSyncContext } from '../services/SyncContext';
-import { getSelectedNoteId } from '../services/NoteOperations';
+import { getSelectedNoteId, updateNoteBody } from '../services/NoteOperations';
 
 /**
  * Parameters for pullNote command
@@ -48,13 +48,8 @@ export async function pullNote(params: Params): Promise<PullResult> {
   // Create sync context with authenticated API clients
   const ctx = await createSyncContext(installDir, dataDir);
 
-  // Determine the note ID
-  let noteId: string;
-  if (params.noteId && typeof params.noteId === 'string') {
-    noteId = params.noteId;
-  } else {
-    noteId = await getSelectedNoteId(j);
-  }
+  // Determine the note ID using NoteOperations
+  const noteId = params.noteId || await getSelectedNoteId(j);
 
   // Get binding and validate
   const mapping = loadMapping(dataDir);
@@ -72,8 +67,8 @@ export async function pullNote(params: Params): Promise<PullResult> {
   // Convert to Markdown
   const md = convertDocumentToMarkdown(convertDoc, { installDir });
 
-  // Update note body
-  await j.data.put(['notes', noteId], null, { body: md });
+  // Update note body using NoteOperations
+  await updateNoteBody(j, noteId, md);
 
   // Update mapping with new revision info
   const docMeta = await ctx.docs.documents.get({ documentId: binding.fileId });
