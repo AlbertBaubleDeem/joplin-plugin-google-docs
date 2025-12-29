@@ -9,15 +9,22 @@
     "dev": "tsc -w -p .",
     "deploy:wsl": "bash scripts/deploy-wsl.sh \"${DEST:-}\""
   },
-  "keywords": ["joplin", "plugin", "google-docs", "google-drive"],
+  "keywords": [
+    "joplin",
+    "plugin",
+    "google-docs",
+    "google-drive"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/marked": "^5.0.2",
     "@types/node": "^22.5.4",
     "typescript": "^5.5.4"
   },
   "dependencies": {
     "dotenv": "^17.2.2",
-    "googleapis": "^159.0.0"
+    "googleapis": "^159.0.0",
+    "marked": "^17.0.1"
   }
 }

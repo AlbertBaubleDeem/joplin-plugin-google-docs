@@ -4,6 +4,9 @@ console.warn('[gdocs] root index executing');
     const j = (typeof globalThis !== 'undefined' && globalThis.joplin) ? globalThis.joplin : (typeof joplin !== 'undefined' ? joplin : null);
     if (!j) { return; }
 
+    // Debug mode state for converter IR logging
+    let converterDebugEnabled = false;
+
     async function pollOnce() {
       try {
         const path = require('path');
@@ -90,6 +93,13 @@ console.warn('[gdocs] root index executing');
         const path = require('path');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
+        
+        // Enable debug mode if toggled on
+        if (converterDebugEnabled) {
+          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
+          converter.setDebugMode(true, dataDir);
+        }
+        
         const pullDoerPath = path.resolve(installDir, 'dist/commands/pullNote.js');
         const { pullNote } = require(pullDoerPath);
         const res = await pullNote({ j, installDir, dataDir });
@@ -132,14 +142,58 @@ console.warn('[gdocs] root index executing');
       }
     }
 
+    async function toggleConverterDebug() {
+      const path = require('path');
+      const fs = require('fs');
+      const installDir = (await j.plugins.installationDir()) || '';
+      const dataDir = await j.plugins.dataDir();
+      
+      console.log('[gdocs] dataDir:', dataDir);
+      console.log('[gdocs] installDir:', installDir);
+      
+      const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
+      
+      converterDebugEnabled = !converterDebugEnabled;
+      converter.setDebugMode(converterDebugEnabled, dataDir);
+      
+      const logPath = converter.getDebugLogPath();
+      console.log('[gdocs] Debug enabled:', converterDebugEnabled, 'logPath:', logPath);
+      
+      if (converterDebugEnabled && logPath) {
+        // Verify the file was created
+        const exists = fs.existsSync(logPath);
+        await j.views.dialogs.showMessageBox(
+          `Converter debug ENABLED.\n\nLog file: ${logPath}\nFile exists: ${exists}\nDataDir: ${dataDir}`
+        );
+      } else {
+        await j.views.dialogs.showMessageBox('Converter debug DISABLED.');
+      }
+    }
+
     async function pushNow() {
       try {
         const path = require('path');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
+        
+        // Enable debug mode if toggled on - MUST be done before requiring commands
+        if (converterDebugEnabled) {
+          console.log('[gdocs] Enabling converter debug for push');
+          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
+          converter.setDebugMode(true, dataDir);
+          console.log('[gdocs] Debug mode set, isEnabled:', converter.isDebugEnabled());
+        }
+        
         const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
         const res = await mod.pushNote({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
+        
+        if (converterDebugEnabled) {
+          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
+          const logPath = converter.getDebugLogPath();
+          await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId + '\n\nDebug log: ' + logPath);
+        } else {
+          await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
+        }
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
@@ -206,6 +260,7 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsMigrateToAppDoc', label: 'Google Docs Sync: Migrate to App Doc', execute: async () => { await migrateToAppDocCmd(); } });
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
         await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook to Drive Folder', execute: async () => { await exportNotebookCmd(); } });
+        await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: Toggle Converter Debug', execute: async () => { await toggleConverterDebug(); } });
         
         // Add notebook export to folder context menu
         await j.views.menuItems.create('notebookExportMenu', 'gdocsExportNotebook', 'folderContextMenu');
