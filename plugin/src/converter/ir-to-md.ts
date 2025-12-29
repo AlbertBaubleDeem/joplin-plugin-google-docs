@@ -10,22 +10,6 @@ import { loadConfig } from './config';
 import { debug } from './debug';
 
 /**
- * Default Markdown prefixes for paragraph types.
- */
-const DEFAULT_PREFIXES: Record<string, string> = {
-  title: '# ',
-  subtitle: '',
-  heading_1: '# ',
-  heading_2: '## ',
-  heading_3: '### ',
-  heading_4: '#### ',
-  heading_5: '##### ',
-  heading_6: '###### ',
-  paragraph: '',
-  code_block: '',
-};
-
-/**
  * Convert IR document to Markdown string.
  * 
  * @param doc - The IR document
@@ -84,18 +68,17 @@ function paragraphToMarkdown(para: Paragraph, config: ConverterConfig): string |
  * Get the Markdown prefix for a paragraph type.
  */
 function getPrefix(para: Paragraph, config: ConverterConfig): string {
-  // Check for config overrides via mdPrefixes
-  const mdPrefixes = config.mdPrefixes || {};
+  const prefixes = config.mdPrefixes || {};
   
   switch (para.type) {
     case 'title':
-      return mdPrefixes.TITLE ?? DEFAULT_PREFIXES.title;
+      return prefixes.TITLE ?? '# ';
     case 'subtitle':
-      return mdPrefixes.SUBTITLE ?? DEFAULT_PREFIXES.subtitle;
+      return prefixes.SUBTITLE ?? '';
     case 'heading':
       const level = para.level || 1;
-      const key = `HEADING_${level}` as keyof typeof mdPrefixes;
-      return mdPrefixes[key] ?? DEFAULT_PREFIXES[`heading_${level}`] ?? '';
+      const key = `HEADING_${level}` as keyof typeof prefixes;
+      return prefixes[key] ?? '#'.repeat(level) + ' ';
     default:
       return '';
   }

@@ -17,6 +17,15 @@ const DEFAULT_CONFIG: ConverterConfig = {
     block: { detect: true },
     monoFont: 'Roboto Mono',
   },
+  mdPrefixes: {
+    TITLE: '# ',
+    HEADING_1: '# ',
+    HEADING_2: '## ',
+    HEADING_3: '### ',
+    HEADING_4: '#### ',
+    HEADING_5: '##### ',
+    HEADING_6: '###### ',
+  },
 };
 
 /** Cached config per installDir */
