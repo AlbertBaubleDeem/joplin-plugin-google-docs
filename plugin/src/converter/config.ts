@@ -14,7 +14,7 @@ const DEFAULT_CONFIG: ConverterConfig = {
   subtitle: { mode: 'italic' },
   code: {
     inline: { marker: '`' },
-    block: { detect: true },
+    block: { detect: true, marker: '```' },
     monoFont: 'Roboto Mono',
   },
   mdPrefixes: {

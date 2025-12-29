@@ -85,6 +85,8 @@ export type ConverterConfig = {
     block?: {
       /** Whether to detect code blocks from Docs */
       detect?: boolean;
+      /** Fence marker (default: '```', alternative: '~~~') */
+      marker?: string;
     };
     /** Monospace font for code (default: 'Roboto Mono') */
     monoFont?: string;

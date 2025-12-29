@@ -43,7 +43,8 @@ function paragraphToMarkdown(para: Paragraph, config: ConverterConfig): string |
   if (para.type === 'code_block') {
     const codeText = para.spans.map(s => s.text).join('');
     const lang = para.language || '';
-    return '```' + lang + '\n' + codeText + '\n```';
+    const fence = config.code?.block?.marker || '```';
+    return fence + lang + '\n' + codeText + '\n' + fence;
   }
   
   // Get prefix for paragraph type
