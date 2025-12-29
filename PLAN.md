@@ -30,7 +30,7 @@
    - OAuth2: `drive.file`, `drive.metadata.readonly`, `documents`
 2) Drive folder mgmt
    - Create/find a root folder for sync
-3) Create Doc per “note” (synthetic input)
+3) Create Doc per "note" (synthetic input)
    - Set `appProperties` mapping; verify retrieval
 4) Push flow (Joplin → Docs)
    - Read Doc `revisionId`
@@ -39,7 +39,7 @@
 5) Pull flow (Docs → Joplin)
    - `changes.list` polling → detect modified Doc
    - `documents.get(includeTabsContent=true)` and extract text
-   - Update local “note” and `appProperties`
+   - Update local "note" and `appProperties`
 6) Conflict handling
    - Simulate concurrent edit → expect precondition failure → reload and resolve
 7) Ownership/permission loss
@@ -68,4 +68,144 @@
   - Lists/links/images (beyond headings/bold/italic/code)
 - Docs/README: update setup instructions for Picker scopes and sync folder
 
+---
+
+## Architecture: Provider-Agnostic Cloud Sync (December 2025)
+
+### Goals
+1. **Code deduplication** – Consolidate repeated patterns across commands
+2. **Provider-agnostic design** – Abstract cloud operations so DOCX (and others) can be added later
+3. **Preserve stability** – Keep `runtime/index.js` and `google-api-tests/` as-is
+
+### Design Principles
+- **Cloud sync centric, not Google-centric** – The architecture supports multiple backends
+- **Deduplication first, then extensibility** – Consolidate code while introducing abstractions
+- **Test APIs in sandbox first** – Use `google-api-tests/` to validate API behavior before implementation
+
+### Directory Structure
+
+```
+plugin/src/
+├── commands/           # Thin orchestration (uses services + providers)
+│   ├── pushNote.ts
+│   ├── pullNote.ts
+│   ├── createFromNote.ts
+│   ├── exportNotebook.ts
+│   └── ...
+├── services/           # Shared utilities
+│   ├── SyncContext.ts      # Auth + API client consolidation
+│   ├── SyncFolderManager.ts # Sync folder resolution/creation
+│   ├── NoteOperations.ts    # Common Joplin note helpers
+│   └── auth.ts              # OAuth token loading
+├── providers/          # Document provider implementations
+│   ├── IDocumentProvider.ts  # Provider interface
+│   ├── GoogleDocsProvider.ts # Google Docs implementation
+│   └── DocxProvider.ts       # DOCX stub (future)
+├── converters/         # Format conversion
+│   ├── IFormatConverter.ts   # Converter interface
+│   ├── DocxConverter.ts      # DOCX stub (future)
+│   └── index.ts
+├── converter.ts        # Current Markdown ↔ Google Docs converter
+├── mapping.ts          # Local binding storage
+├── poller.ts           # Drive Changes polling
+└── structure.ts        # Document structure analysis
+```
+
+### Key Abstractions
+
+#### IDocumentProvider
+Provider-agnostic interface for document operations:
+```typescript
+interface IDocumentProvider {
+  providerName: string;
+  
+  // Document operations
+  createDocument(title: string, parentFolderId?: string): Promise<CreateDocumentResult>;
+  getDocument(docId: string): Promise<DocumentWithContent>;
+  updateDocument(docId: string, content: any, revisionId?: string): Promise<UpdateDocumentResult>;
+  deleteDocument(docId: string): Promise<void>;
+  
+  // Folder operations
+  ensureSyncFolder(): Promise<string>;
+  createFolder(name: string, parentId?: string): Promise<FolderMetadata>;
+  
+  // Binding operations
+  setDocumentBinding(docId: string, binding: DocumentBinding): Promise<void>;
+  getDocumentBinding(docId: string): Promise<DocumentBinding | null>;
+  
+  // Change detection
+  getRevisionId(docId: string): Promise<string | undefined>;
+  hasDocumentChanged(docId: string, knownRevisionId: string): Promise<boolean>;
+}
+```
+
+#### IFormatConverter
+Provider-agnostic interface for format conversion:
+```typescript
+interface IFormatConverter {
+  formatName: string;
+  
+  fromMarkdown(markdown: string, config?: ConversionConfig): MarkdownToFormatResult;
+  toMarkdown(content: any, config?: ConversionConfig): FormatToMarkdownResult;
+  buildFormattingRequests(result: MarkdownToFormatResult, config?: ConversionConfig): any[];
+}
+```
+
+#### SyncContext
+Consolidates authentication and API client creation:
+```typescript
+interface SyncContext {
+  google: any;      // googleapis module
+  auth: any;        // OAuth2 client
+  drive: any;       // Pre-created Drive client (v3)
+  docs: any;        // Pre-created Docs client (v1)
+  installDir: string;
+  dataDir: string;
+}
+
+// Usage in commands:
+const ctx = await createSyncContext(installDir, dataDir);
+const files = await ctx.drive.files.list({ ... });
+```
+
+### Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| SyncContext | ✅ Done | Consolidates auth + API clients |
+| SyncFolderManager | ✅ Done | Centralized folder operations |
+| NoteOperations | ✅ Done | Common Joplin helpers |
+| IDocumentProvider | ✅ Done | Interface defined |
+| GoogleDocsProvider | ✅ Done | Full implementation |
+| IFormatConverter | ✅ Done | Interface defined |
+| DocxProvider | 🔲 Stub | Ready for implementation |
+| DocxConverter | 🔲 Stub | Ready for implementation |
+| Command refactoring | ✅ Done | Using new services |
+
+### Future: Adding DOCX Support
+
+When DOCX export is prioritized:
+
+1. **Implement DocxProvider** (`src/providers/DocxProvider.ts`)
+   - Use `docx` npm package for file generation
+   - Store bindings in document custom properties or sidecar files
+   - Output to configurable directory
+
+2. **Implement DocxConverter** (`src/converters/DocxConverter.ts`)
+   - Map Markdown headings to DOCX heading styles
+   - Map inline formatting to text runs
+   - Handle images and links
+
+3. **Add provider selection**
+   - User setting for default provider
+   - Per-command provider override
+   - UI for choosing export format
+
+### Preserved Components
+
+These remain unchanged to maintain stability:
+- `runtime/index.js` – Plugin entry point (dynamic requires work in Joplin)
+- `google-api-tests/` – API exploration sandbox (test before implementing)
+- `mapping.ts` – Local binding storage format
+- `converter.ts` – Current MD ↔ Docs converter (will implement IFormatConverter later)
 
