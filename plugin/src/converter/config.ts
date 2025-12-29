@@ -72,13 +72,14 @@ export function loadConfig(installDir?: string): ConverterConfig {
     // Ignore errors, use defaults
   }
   
-  // Merge with defaults
+  // Merge with defaults (deep merge nested objects)
   const merged: ConverterConfig = {
     ...DEFAULT_CONFIG,
     ...fileConfig,
     title: { ...DEFAULT_CONFIG.title, ...fileConfig.title },
     subtitle: { ...DEFAULT_CONFIG.subtitle, ...fileConfig.subtitle },
     code: { ...DEFAULT_CONFIG.code, ...fileConfig.code },
+    mdPrefixes: { ...DEFAULT_CONFIG.mdPrefixes, ...fileConfig.mdPrefixes },
   };
   
   // Cache and return
