@@ -13,9 +13,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as url from 'url';
 
-// OAuth scopes required by the plugin
+// OAuth scopes required by the plugin (minimum required)
+// - drive.file: Only files created by this app or explicitly opened by user
+// - documents: Read/write access to Google Docs
 const OAUTH_SCOPES = [
-  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/documents',
 ];
 

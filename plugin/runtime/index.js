@@ -14,16 +14,22 @@ console.warn('[gdocs] root index executing');
       const dataDir = await j.plugins.dataDir();
       
       // Check if it's an auth error
-      const errorStr = JSON.stringify(e).toLowerCase();
+      const errorStr = (typeof e === 'string' ? e : JSON.stringify(e)).toLowerCase();
+      const errorMsg = (e?.message || '').toLowerCase();
+      
       const isAuthError = 
         errorStr.includes('invalid_grant') ||
         errorStr.includes('token has been expired') ||
         errorStr.includes('token has been revoked') ||
         errorStr.includes('invalid_token') ||
-        errorStr.includes('no access, refresh token') ||
-        errorStr.includes('refresh handler callback is set') ||
-        errorStr.includes('enoent') && errorStr.includes('token') ||
+        errorStr.includes('no access') ||
+        errorStr.includes('refresh token') && (errorStr.includes('no ') || errorStr.includes('missing')) ||
+        errorStr.includes('refresh handler callback') ||
+        errorMsg.includes('no access') ||
+        errorMsg.includes('refresh token') ||
         (e?.response?.status === 401);
+      
+      console.log('[gdocs] handleError - isAuthError:', isAuthError, 'errorStr sample:', errorStr.substring(0, 200));
       
       if (isAuthError) {
         // Show re-auth dialog
