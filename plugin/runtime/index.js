@@ -7,75 +7,17 @@ console.warn('[gdocs] root index executing');
     // Debug mode state for converter IR logging
     let converterDebugEnabled = false;
     
-    // Auth error handling helper
+    // Auth error handling helper - delegates to authErrorHandler module
     async function handleError(e, errorPrefix) {
       const path = require('path');
       const installDir = (await j.plugins.installationDir()) || '';
       const dataDir = await j.plugins.dataDir();
       
-      // Check if it's an auth error
-      const errorStr = (typeof e === 'string' ? e : JSON.stringify(e)).toLowerCase();
-      const errorMsg = (e?.message || '').toLowerCase();
-      const errorCode = e?.code || '';
+      const { isAuthError, handleAuthError } = require(path.resolve(installDir, 'dist/services/authErrorHandler.js'));
       
-      const isAuthError = 
-        // Google OAuth errors
-        errorStr.includes('invalid_grant') ||
-        errorStr.includes('token has been expired') ||
-        errorStr.includes('token has been revoked') ||
-        errorStr.includes('invalid_token') ||
-        errorStr.includes('no access') ||
-        errorStr.includes('refresh token') && (errorStr.includes('no ') || errorStr.includes('missing')) ||
-        errorStr.includes('refresh handler callback') ||
-        errorMsg.includes('no access') ||
-        errorMsg.includes('refresh token') ||
-        (e?.response?.status === 401) ||
-        // Missing token file (ENOENT)
-        (errorCode === 'ENOENT' && errorStr.includes('token')) ||
-        (errorMsg.includes('enoent') && errorMsg.includes('token')) ||
-        errorStr.includes('.token.json');
-      
-      console.log('[gdocs] handleError - isAuthError:', isAuthError, 'code:', errorCode, 'msg:', errorMsg.substring(0, 100));
-      
-      if (isAuthError) {
-        // Show re-auth dialog
-        const dialogId = 'gdocs-auth-error-' + Date.now();
-        const dialog = await j.views.dialogs.create(dialogId);
-        
-        const html = `
-          <div style="padding: 20px; max-width: 400px;">
-            <div style="text-align: center; margin-bottom: 16px;">
-              <span style="font-size: 36px;">🔑</span>
-            </div>
-            <h2 style="margin: 0 0 12px 0; color: var(--joplin-color); text-align: center;">
-              Authorization Required
-            </h2>
-            <p style="line-height: 1.6; color: var(--joplin-color); text-align: center;">
-              Google authorization is missing or has expired.
-            </p>
-            <p style="line-height: 1.6; color: var(--joplin-color2); text-align: center; font-size: 13px;">
-              Click "Authorize" to sign in with your Google account.
-            </p>
-          </div>
-        `;
-        
-        await j.views.dialogs.setHtml(dialog, html);
-        await j.views.dialogs.setButtons(dialog, [
-          { id: 'reauth', title: 'Authorize Now' },
-          { id: 'cancel', title: 'Cancel' },
-        ]);
-        
-        const result = await j.views.dialogs.open(dialog);
-        
-        if (result?.id === 'reauth') {
-          try {
-            const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
-            const authResult = await reauthorize({ j, installDir, dataDir });
-            await j.views.dialogs.showMessageBox(authResult.message + (authResult.success ? '\n\nPlease try your action again.' : ''));
-          } catch (authErr) {
-            await j.views.dialogs.showMessageBox('Re-authorization error: ' + (authErr.message || authErr));
-          }
-        }
+      if (isAuthError(e)) {
+        console.log('[gdocs] handleError - detected auth error');
+        await handleAuthError(j, e, installDir, dataDir);
       } else {
         // Non-auth error, show normal message
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;

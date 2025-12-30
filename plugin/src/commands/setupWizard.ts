@@ -158,10 +158,10 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
 async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
   const dialogId = 'gdocs-wizard-welcome-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  
   const html = `
-    <div style="padding: 20px; max-width: 500px;">
-      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
+    <style>#joplin-plugin-content { width: max-content; }</style>
+    <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
+      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
         Welcome to Google Docs Sync
       </h2>
       
@@ -170,7 +170,7 @@ async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
       </p>
       
       <div style="background: var(--joplin-background-color3); padding: 16px; border-radius: 8px; margin: 16px 0;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color);">What you'll be able to do:</h3>
+        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: center;">What you'll be able to do:</h3>
         <ul style="margin: 0; padding-left: 20px; color: var(--joplin-color);">
           <li>Push Joplin notes to Google Docs</li>
           <li>Pull changes from Google Docs back to Joplin</li>
@@ -179,7 +179,7 @@ async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
         </ul>
       </div>
       
-      <p style="font-size: 13px; color: var(--joplin-color2);">
+      <p style="font-size: 13px; color: var(--joplin-color);">
         Click "Next" to begin setup.
       </p>
     </div>
@@ -187,8 +187,8 @@ async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
   
   await j.views.dialogs.setHtml(dialog, html);
   await j.views.dialogs.setButtons(dialog, [
-    { id: 'next', title: 'Next →' },
     { id: 'cancel', title: 'Cancel' },
+    { id: 'next', title: 'Next →' },
   ]);
   
   const result = await j.views.dialogs.open(dialog);
@@ -205,15 +205,15 @@ async function showCredentialsStep(
 ): Promise<{ clientId: string; clientSecret: string } | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-credentials-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  
   const html = `
-    <div style="padding: 20px; max-width: 500px;">
-      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
+    <style>#joplin-plugin-content { width: max-content; }</style>
+    <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
+      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
         Enter Google API Credentials
       </h2>
       
       <div style="background: var(--joplin-background-color3); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-        <p style="margin: 0; font-size: 13px; color: var(--joplin-color2);">
+        <p style="margin: 0; font-size: 13px; color: var(--joplin-color);">
           <strong>Get credentials from:</strong><br/>
           • Your organization admin (for company use), or<br/>
           • Create your own at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: var(--joplin-url-color);">Google Cloud Console</a>
@@ -230,7 +230,7 @@ async function showCredentialsStep(
             name="clientId" 
             value="${escapeHtml(currentClientId)}"
             placeholder="123456789-abc.apps.googleusercontent.com"
-            style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color);"
+            style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color); box-sizing: border-box;"
           />
         </div>
         
@@ -243,7 +243,7 @@ async function showCredentialsStep(
             name="clientSecret" 
             value="${escapeHtml(currentClientSecret)}"
             placeholder="GOCSPX-..."
-            style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color);"
+            style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color); box-sizing: border-box;"
           />
         </div>
       </form>
@@ -252,9 +252,9 @@ async function showCredentialsStep(
   
   await j.views.dialogs.setHtml(dialog, html);
   await j.views.dialogs.setButtons(dialog, [
-    { id: 'next', title: 'Next →' },
     { id: 'back', title: '← Back' },
     { id: 'cancel', title: 'Cancel' },
+    { id: 'next', title: 'Next →' },
   ]);
   
   const result = await j.views.dialogs.open(dialog);
@@ -284,10 +284,10 @@ async function showAuthorizeStep(
 ): Promise<'success' | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-authorize-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  
   const html = `
-    <div style="padding: 20px; max-width: 500px;">
-      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
+    <style>#joplin-plugin-content { width: max-content; }</style>
+    <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
+      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
         Authorize with Google
       </h2>
       
@@ -297,7 +297,7 @@ async function showAuthorizeStep(
       </p>
       
       <div style="background: var(--joplin-background-color3); padding: 12px; border-radius: 8px; margin: 16px 0;">
-        <p style="margin: 0; font-size: 13px; color: var(--joplin-color2);">
+        <p style="margin: 0; font-size: 13px; color: var(--joplin-color);">
           <strong>Permissions requested:</strong><br/>
           • Access to Google Drive files<br/>
           • Access to Google Docs
@@ -308,9 +308,9 @@ async function showAuthorizeStep(
   
   await j.views.dialogs.setHtml(dialog, html);
   await j.views.dialogs.setButtons(dialog, [
-    { id: 'authorize', title: '🔐 Authorize' },
     { id: 'back', title: '← Back' },
     { id: 'cancel', title: 'Cancel' },
+    { id: 'authorize', title: '🔐 Authorize' },
   ]);
   
   const result = await j.views.dialogs.open(dialog);
@@ -336,10 +336,10 @@ async function showAuthorizeStep(
 async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-folder-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  
   const html = `
-    <div style="padding: 20px; max-width: 500px;">
-      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
+    <style>#joplin-plugin-content { width: max-content; }</style>
+    <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
+      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
         Sync Folder Configuration
       </h2>
       
@@ -349,21 +349,21 @@ async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back'
       
       <form name="f">
         <div style="margin: 16px 0;">
-          <label style="display: flex; align-items: flex-start; padding: 12px; border: 2px solid var(--joplin-divider-color); border-radius: 8px; cursor: pointer; margin-bottom: 8px;">
+          <label style="display: flex; align-items: flex-start; padding: 12px; border: 1px solid var(--joplin-divider-color); border-radius: 8px; cursor: pointer; margin-bottom: 8px; background: var(--joplin-background-color);">
             <input type="radio" name="folderOption" value="auto" checked style="margin: 4px 12px 0 0;" />
             <div>
               <strong style="color: var(--joplin-color);">Auto-create folder (Recommended)</strong>
-              <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--joplin-color2);">
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--joplin-color);">
                 Creates "Joplin Google Docs Sync" folder in your Drive.
               </p>
             </div>
           </label>
           
-          <label style="display: flex; align-items: flex-start; padding: 12px; border: 2px solid var(--joplin-divider-color); border-radius: 8px; cursor: pointer;">
+          <label style="display: flex; align-items: flex-start; padding: 12px; border: 1px solid var(--joplin-divider-color); border-radius: 8px; cursor: pointer; background: var(--joplin-background-color);">
             <input type="radio" name="folderOption" value="custom" style="margin: 4px 12px 0 0;" />
             <div>
               <strong style="color: var(--joplin-color);">Use existing folder</strong>
-              <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--joplin-color2);">
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--joplin-color);">
                 Enter the folder ID from Google Drive.
               </p>
             </div>
@@ -378,7 +378,7 @@ async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back'
             type="text" 
             name="folderId" 
             placeholder="Leave empty for auto-create"
-            style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color);"
+            style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color); box-sizing: border-box;"
           />
         </div>
       </form>
@@ -387,9 +387,9 @@ async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back'
   
   await j.views.dialogs.setHtml(dialog, html);
   await j.views.dialogs.setButtons(dialog, [
-    { id: 'next', title: 'Next →' },
     { id: 'back', title: '← Back' },
     { id: 'cancel', title: 'Cancel' },
+    { id: 'next', title: 'Next →' },
   ]);
   
   const result = await j.views.dialogs.open(dialog);
@@ -409,12 +409,12 @@ async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back'
 async function showCompleteStep(j: any): Promise<void> {
   const dialogId = 'gdocs-wizard-complete-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  
   const html = `
-    <div style="padding: 20px; max-width: 500px; text-align: center;">
+    <style>#joplin-plugin-content { width: max-content; }</style>
+    <div style="padding: 20px; min-width: 420px; box-sizing: border-box; text-align: center;">
       <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
       
-      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
+      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
         Setup Complete!
       </h2>
       
@@ -423,7 +423,7 @@ async function showCompleteStep(j: any): Promise<void> {
       </p>
       
       <div style="background: var(--joplin-background-color3); padding: 16px; border-radius: 8px; margin: 16px 0; text-align: left;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color);">Quick Start:</h3>
+        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: center;">Quick Start:</h3>
         <ul style="margin: 0; padding-left: 20px; color: var(--joplin-color); font-size: 13px;">
           <li>Select a note and run <strong>Push (update Doc)</strong></li>
           <li>Right-click a notebook to <strong>Export to Drive</strong></li>
@@ -431,7 +431,7 @@ async function showCompleteStep(j: any): Promise<void> {
         </ul>
       </div>
       
-      <p style="font-size: 13px; color: var(--joplin-color2);">
+      <p style="font-size: 13px; color: var(--joplin-color);">
         Access all commands from Tools → Command Palette (Ctrl+Shift+P)
       </p>
     </div>
