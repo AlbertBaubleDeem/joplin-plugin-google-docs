@@ -6,6 +6,68 @@ console.warn('[gdocs] root index executing');
 
     // Debug mode state for converter IR logging
     let converterDebugEnabled = false;
+    
+    // Auth error handling helper
+    async function handleError(e, errorPrefix) {
+      const path = require('path');
+      const installDir = (await j.plugins.installationDir()) || '';
+      const dataDir = await j.plugins.dataDir();
+      
+      // Check if it's an auth error
+      const errorStr = JSON.stringify(e).toLowerCase();
+      const isAuthError = 
+        errorStr.includes('invalid_grant') ||
+        errorStr.includes('token has been expired') ||
+        errorStr.includes('token has been revoked') ||
+        errorStr.includes('invalid_token') ||
+        (e?.response?.status === 401);
+      
+      if (isAuthError) {
+        // Show re-auth dialog
+        const dialogId = 'gdocs-auth-error-' + Date.now();
+        const dialog = await j.views.dialogs.create(dialogId);
+        
+        const html = `
+          <div style="padding: 20px; max-width: 400px;">
+            <div style="text-align: center; margin-bottom: 16px;">
+              <span style="font-size: 36px;">🔑</span>
+            </div>
+            <h2 style="margin: 0 0 12px 0; color: var(--joplin-color); text-align: center;">
+              Authorization Expired
+            </h2>
+            <p style="line-height: 1.6; color: var(--joplin-color); text-align: center;">
+              Your Google authorization has expired or was revoked.
+            </p>
+            <p style="line-height: 1.6; color: var(--joplin-color2); text-align: center; font-size: 13px;">
+              Click "Re-authorize" to sign in again with Google.
+            </p>
+          </div>
+        `;
+        
+        await j.views.dialogs.setHtml(dialog, html);
+        await j.views.dialogs.setButtons(dialog, [
+          { id: 'reauth', title: 'Re-authorize' },
+          { id: 'cancel', title: 'Cancel' },
+        ]);
+        
+        const result = await j.views.dialogs.open(dialog);
+        
+        if (result?.id === 'reauth') {
+          try {
+            const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+            const authResult = await reauthorize({ j, installDir, dataDir });
+            await j.views.dialogs.showMessageBox(authResult.message + (authResult.success ? '\n\nPlease try your action again.' : ''));
+          } catch (authErr) {
+            await j.views.dialogs.showMessageBox('Re-authorization error: ' + (authErr.message || authErr));
+          }
+        }
+      } else {
+        // Non-auth error, show normal message
+        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+        await j.views.dialogs.showMessageBox(errorPrefix + ': ' + msg);
+      }
+    }
 
     async function pollOnce() {
       try {
@@ -29,9 +91,7 @@ console.warn('[gdocs] root index executing');
         const lines = (syncRes.decisions || []).map(d => `- noteId=${d.noteId} fileId=${d.fileId} action=${d.action} reason=${d.reason} tabMatched=${d.tabMatched}`);
         await j.views.dialogs.showMessageBox('Poll completed. Matches: ' + syncRes.matched + ' Updated: ' + syncRes.updated + (lines.length ? ('\n' + lines.join('\n')) : ''));
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Poll error: ' + msg);
+        await handleError(e, 'Poll error');
       }
     }
 
@@ -44,9 +104,7 @@ console.warn('[gdocs] root index executing');
         const res = await mod.createFromNote({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Created Google Doc and bound note. newFileId=' + res.newFileId);
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Create-from-note error: ' + msg);
+        await handleError(e, 'Create-from-note error');
       }
     }
 
@@ -110,9 +168,7 @@ console.warn('[gdocs] root index executing');
         const res = await pullNote({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Pulled content into the note.' + (res.tabCount ? (' tabs=' + res.tabCount + (res.usedTabTitle ? (' used="' + res.usedTabTitle + '"') : '')) : ''));
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Pull error: ' + msg);
+        await handleError(e, 'Pull error');
       }
     }
 
@@ -126,9 +182,7 @@ console.warn('[gdocs] root index executing');
         const res = await autoPairRun({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox(`Auto Pair complete. folderId=${res.folderId} scanned=${res.scanned} created=${res.created} linked=${res.linkedExisting} ensured=${res.ensuredMapping}`);
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Auto Pair error: ' + msg);
+        await handleError(e, 'Auto Pair error');
       }
     }
 
@@ -141,9 +195,7 @@ console.warn('[gdocs] root index executing');
         const res = await mod.migrateToAppDoc({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Migrated to App Doc. newFileId=' + res.newFileId + ' noteId=' + res.noteId);
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Migrate error: ' + msg);
+        await handleError(e, 'Migrate error');
       }
     }
 
@@ -209,19 +261,7 @@ console.warn('[gdocs] root index executing');
           '=== Debug Log ===\n' + debugSummary
         );
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        
-        // Get debug log from file
-        let debugSummary = 'No debug log';
-        try {
-          const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
-          debugSummary = mod.getDebugLogFromFile ? mod.getDebugLogFromFile(dataDir) : 'No file reader';
-        } catch (logErr) {
-          debugSummary = 'Error reading log: ' + logErr.message;
-        }
-        
-        await j.views.dialogs.showMessageBox('Push error: ' + msg + '\n\n=== Debug Log ===\n' + debugSummary);
+        await handleError(e, 'Push error');
       }
     }
 
@@ -234,9 +274,7 @@ console.warn('[gdocs] root index executing');
         const res = await mod.openDrivePickerDialog({ j, installDir, dataDir });
         await j.views.dialogs.showMessageBox('Drive picker completed. selected=' + res.selected.length + ' created=' + res.created + ' bound=' + res.bound);
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Picker error: ' + msg);
+        await handleError(e, 'Picker error');
       }
     }
 
@@ -263,9 +301,7 @@ console.warn('[gdocs] root index executing');
           );
         }
       } catch (e) {
-        const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-        const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Export notebook error: ' + msg);
+        await handleError(e, 'Export notebook error');
       }
     }
 
