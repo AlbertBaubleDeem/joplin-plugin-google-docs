@@ -11,7 +11,6 @@ import * as path from 'path';
 
 // Setting keys (exported for use elsewhere)
 export const SETTING_KEYS = {
-  AUTH_MODE: 'authMode',
   CLIENT_ID: 'clientId',
   CLIENT_SECRET: 'clientSecret',
   POLL_INTERVAL_MINUTES: 'pollIntervalMinutes',
@@ -114,29 +113,14 @@ export async function registerSettings(joplin: any): Promise<void> {
 
   // Register individual settings
   await joplin.settings.registerSettings({
-    // Authorization mode: shared (company project) or personal (own credentials)
-    [SETTING_KEYS.AUTH_MODE]: {
-      value: 'shared',
-      type: SettingItemType.String,
-      section: SETTINGS_SECTION,
-      isEnum: true,
-      public: true,
-      label: 'Authorization Mode',
-      description: 'Use shared company credentials or your own Google Cloud project',
-      options: {
-        'shared': 'Shared (Company Project)',
-        'personal': 'Personal (Own Credentials)',
-      },
-    },
-
-    // OAuth Client ID (for personal mode)
+    // OAuth Client ID
     [SETTING_KEYS.CLIENT_ID]: {
       value: '',
       type: SettingItemType.String,
       section: SETTINGS_SECTION,
       public: true,
       label: 'OAuth Client ID',
-      description: 'Your Google Cloud OAuth Client ID (personal mode only)',
+      description: 'Google Cloud OAuth Client ID (get from your admin or create your own GCP project)',
     },
 
     // OAuth Client Secret (secure storage)
@@ -147,7 +131,7 @@ export async function registerSettings(joplin: any): Promise<void> {
       public: true,
       secure: true,
       label: 'OAuth Client Secret',
-      description: 'Your Google Cloud OAuth Client Secret (personal mode only)',
+      description: 'Google Cloud OAuth Client Secret (stored securely)',
     },
 
     // Polling interval in minutes
@@ -203,7 +187,6 @@ export async function registerSettings(joplin: any): Promise<void> {
  * @returns Object with all setting values
  */
 export async function getSettings(joplin: any): Promise<{
-  authMode: 'shared' | 'personal';
   clientId: string;
   clientSecret: string;
   pollIntervalMinutes: number;
@@ -212,7 +195,6 @@ export async function getSettings(joplin: any): Promise<{
   debugMode: boolean;
 }> {
   const values = await joplin.settings.values([
-    SETTING_KEYS.AUTH_MODE,
     SETTING_KEYS.CLIENT_ID,
     SETTING_KEYS.CLIENT_SECRET,
     SETTING_KEYS.POLL_INTERVAL_MINUTES,
@@ -222,7 +204,6 @@ export async function getSettings(joplin: any): Promise<{
   ]);
 
   return {
-    authMode: values[SETTING_KEYS.AUTH_MODE] as 'shared' | 'personal',
     clientId: values[SETTING_KEYS.CLIENT_ID] as string,
     clientSecret: values[SETTING_KEYS.CLIENT_SECRET] as string,
     pollIntervalMinutes: values[SETTING_KEYS.POLL_INTERVAL_MINUTES] as number,
@@ -233,20 +214,12 @@ export async function getSettings(joplin: any): Promise<{
 }
 
 /**
- * Check if authorization is configured.
+ * Check if credentials are configured in settings.
  * 
  * @param joplin - The Joplin API object
- * @returns true if auth credentials are available
+ * @returns true if credentials are available in settings
  */
-export async function isAuthConfigured(joplin: any): Promise<boolean> {
+export async function hasCredentialsInSettings(joplin: any): Promise<boolean> {
   const settings = await getSettings(joplin);
-  
-  if (settings.authMode === 'shared') {
-    // For shared mode, check if bundled credentials exist
-    // This will be checked via the auth service
-    return true;
-  }
-  
-  // For personal mode, check if credentials are provided
   return !!(settings.clientId && settings.clientSecret);
 }

@@ -10,7 +10,9 @@
  * 6. Completion confirmation
  */
 
-import { SETTING_KEYS, getSettings, SettingItemType } from '../services/settings';
+import * as fs from 'fs';
+import * as path from 'path';
+import { SETTING_KEYS, getSettings } from '../services/settings';
 import { hasValidTokens } from '../services/oauthServer';
 import { authorize } from './authorize';
 
@@ -26,7 +28,32 @@ export interface SetupWizardResult {
   message: string;
 }
 
-type WizardStep = 'welcome' | 'authMode' | 'credentials' | 'authorize' | 'syncFolder' | 'complete';
+type WizardStep = 'welcome' | 'credentials' | 'authorize' | 'syncFolder' | 'complete';
+
+/**
+ * Check if credentials exist (in settings or .env)
+ */
+function hasCredentials(installDir: string, settings: { clientId: string; clientSecret: string }): boolean {
+  // Check settings first
+  if (settings.clientId && settings.clientSecret) {
+    return true;
+  }
+  
+  // Check .env file
+  const envPath = path.resolve(installDir, '.env');
+  if (fs.existsSync(envPath)) {
+    const env = fs.readFileSync(envPath, 'utf8');
+    let hasId = false;
+    let hasSecret = false;
+    for (const line of env.split('\n')) {
+      if (line.startsWith('GOOGLE_CLIENT_ID=') && line.length > 17) hasId = true;
+      if (line.startsWith('GOOGLE_CLIENT_SECRET=') && line.length > 21) hasSecret = true;
+    }
+    if (hasId && hasSecret) return true;
+  }
+  
+  return false;
+}
 
 /**
  * Run the setup wizard
@@ -35,38 +62,25 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
   const { j, installDir, dataDir } = params;
   
   let currentStep: WizardStep = 'welcome';
-  let authMode: 'shared' | 'personal' = 'shared';
-  let clientId = '';
-  let clientSecret = '';
+  
+  // Load current settings
+  const settings = await getSettings(j);
+  let clientId = settings.clientId || '';
+  let clientSecret = settings.clientSecret || '';
   
   while (true) {
     switch (currentStep) {
       case 'welcome': {
         const result = await showWelcomeStep(j);
         if (result === 'next') {
-          currentStep = 'authMode';
-        } else {
-          return { completed: false, cancelled: true, message: 'Setup cancelled.' };
-        }
-        break;
-      }
-      
-      case 'authMode': {
-        const result = await showAuthModeStep(j);
-        if (result === 'back') {
-          currentStep = 'welcome';
-        } else if (result === 'cancel') {
-          return { completed: false, cancelled: true, message: 'Setup cancelled.' };
-        } else {
-          authMode = result;
-          // Save auth mode to settings
-          await j.settings.setValue(SETTING_KEYS.AUTH_MODE, authMode);
-          
-          if (authMode === 'personal') {
-            currentStep = 'credentials';
-          } else {
+          // Check if credentials already exist
+          if (hasCredentials(installDir, { clientId, clientSecret })) {
             currentStep = 'authorize';
+          } else {
+            currentStep = 'credentials';
           }
+        } else {
+          return { completed: false, cancelled: true, message: 'Setup cancelled.' };
         }
         break;
       }
@@ -74,7 +88,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
       case 'credentials': {
         const result = await showCredentialsStep(j, clientId, clientSecret);
         if (result === 'back') {
-          currentStep = 'authMode';
+          currentStep = 'welcome';
         } else if (result === 'cancel') {
           return { completed: false, cancelled: true, message: 'Setup cancelled.' };
         } else {
@@ -99,7 +113,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
         
         const result = await showAuthorizeStep(j, installDir, dataDir);
         if (result === 'back') {
-          currentStep = authMode === 'personal' ? 'credentials' : 'authMode';
+          currentStep = 'credentials';
         } else if (result === 'cancel') {
           return { completed: false, cancelled: true, message: 'Setup cancelled.' };
         } else if (result === 'success') {
@@ -182,62 +196,7 @@ async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
 }
 
 /**
- * Step 2: Auth Mode Selection
- */
-async function showAuthModeStep(j: any): Promise<'shared' | 'personal' | 'back' | 'cancel'> {
-  const dialogId = 'gdocs-wizard-authmode-' + Date.now();
-  const dialog = await j.views.dialogs.create(dialogId);
-  
-  const html = `
-    <div style="padding: 20px; max-width: 500px;">
-      <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
-        Choose Authorization Mode
-      </h2>
-      
-      <form name="f">
-        <div style="margin-bottom: 16px;">
-          <label style="display: flex; align-items: flex-start; padding: 12px; border: 2px solid var(--joplin-divider-color); border-radius: 8px; cursor: pointer; margin-bottom: 8px;">
-            <input type="radio" name="mode" value="shared" checked style="margin: 4px 12px 0 0;" />
-            <div>
-              <strong style="color: var(--joplin-color);">Shared Project (Recommended)</strong>
-              <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--joplin-color2);">
-                Use pre-configured credentials from your organization. Just authorize with your Google account.
-              </p>
-            </div>
-          </label>
-          
-          <label style="display: flex; align-items: flex-start; padding: 12px; border: 2px solid var(--joplin-divider-color); border-radius: 8px; cursor: pointer;">
-            <input type="radio" name="mode" value="personal" style="margin: 4px 12px 0 0;" />
-            <div>
-              <strong style="color: var(--joplin-color);">Personal Project</strong>
-              <p style="margin: 4px 0 0 0; font-size: 13px; color: var(--joplin-color2);">
-                Use your own Google Cloud project. You'll need to create OAuth credentials.
-              </p>
-            </div>
-          </label>
-        </div>
-      </form>
-    </div>
-  `;
-  
-  await j.views.dialogs.setHtml(dialog, html);
-  await j.views.dialogs.setButtons(dialog, [
-    { id: 'next', title: 'Next →' },
-    { id: 'back', title: '← Back' },
-    { id: 'cancel', title: 'Cancel' },
-  ]);
-  
-  const result = await j.views.dialogs.open(dialog);
-  
-  if (result?.id === 'back') return 'back';
-  if (result?.id === 'cancel' || !result) return 'cancel';
-  
-  const fd = result.formData?.f || {};
-  return fd.mode === 'personal' ? 'personal' : 'shared';
-}
-
-/**
- * Step 3: Credentials Entry (personal mode)
+ * Step 2: Credentials Entry
  */
 async function showCredentialsStep(
   j: any,
@@ -250,14 +209,14 @@ async function showCredentialsStep(
   const html = `
     <div style="padding: 20px; max-width: 500px;">
       <h2 style="margin: 0 0 16px 0; color: var(--joplin-color);">
-        Enter Google Cloud Credentials
+        Enter Google API Credentials
       </h2>
       
       <div style="background: var(--joplin-background-color3); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
         <p style="margin: 0; font-size: 13px; color: var(--joplin-color2);">
-          Create OAuth 2.0 credentials in the 
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: var(--joplin-url-color);">Google Cloud Console</a>.
-          Enable the Drive API and Docs API.
+          <strong>Get credentials from:</strong><br/>
+          • Your organization admin (for company use), or<br/>
+          • Create your own at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: var(--joplin-url-color);">Google Cloud Console</a>
         </p>
       </div>
       

@@ -5,6 +5,8 @@
  * Opens browser for consent, receives callback, and saves tokens.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { getSettings } from '../services/settings';
 import {
   generateAuthUrl,
@@ -14,10 +16,28 @@ import {
   OAuthConfig,
 } from '../services/oauthServer';
 
-// Bundled credentials for shared mode (company project)
-// These are intentionally included for company users
-const BUNDLED_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const BUNDLED_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+/**
+ * Load credentials from .env file in install directory.
+ * This is the existing credential source used before the settings GUI.
+ */
+function loadEnvCredentials(installDir: string): { clientId: string; clientSecret: string } {
+  const envPath = path.resolve(installDir, '.env');
+  let clientId = '';
+  let clientSecret = '';
+  
+  if (fs.existsSync(envPath)) {
+    const env = fs.readFileSync(envPath, 'utf8');
+    for (const line of env.split('\n')) {
+      const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+      if (m) {
+        if (m[1] === 'GOOGLE_CLIENT_ID') clientId = m[2];
+        if (m[1] === 'GOOGLE_CLIENT_SECRET') clientSecret = m[2];
+      }
+    }
+  }
+  
+  return { clientId, clientSecret };
+}
 
 export interface AuthorizeParams {
   j: any;
@@ -52,35 +72,20 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
     };
   }
   
-  // Get settings to determine auth mode
+  // Get settings
   const settings = await getSettings(j);
   
-  // Determine credentials based on auth mode
-  let clientId: string;
-  let clientSecret: string;
+  // Credential priority: Joplin Settings > .env file
+  const envCreds = loadEnvCredentials(installDir);
   
-  if (settings.authMode === 'shared') {
-    // Use bundled credentials
-    clientId = BUNDLED_CLIENT_ID;
-    clientSecret = BUNDLED_CLIENT_SECRET;
-    
-    if (!clientId || !clientSecret) {
-      return {
-        success: false,
-        message: 'Shared credentials not available. Please switch to Personal mode and enter your own Google Cloud credentials in Settings.',
-      };
-    }
-  } else {
-    // Use personal credentials from settings
-    clientId = settings.clientId;
-    clientSecret = settings.clientSecret;
-    
-    if (!clientId || !clientSecret) {
-      return {
-        success: false,
-        message: 'Please enter your Google Cloud OAuth credentials in Settings → Google Docs Sync before authorizing.',
-      };
-    }
+  const clientId = settings.clientId || envCreds.clientId;
+  const clientSecret = settings.clientSecret || envCreds.clientSecret;
+  
+  if (!clientId || !clientSecret) {
+    return {
+      success: false,
+      message: 'Google API credentials not found.\n\nPlease either:\n1. Enter credentials in Settings → Google Docs Sync, or\n2. Run the Setup Wizard to configure the plugin.\n\nGet credentials from your admin or create your own at console.cloud.google.com',
+    };
   }
   
   const config: OAuthConfig = {
