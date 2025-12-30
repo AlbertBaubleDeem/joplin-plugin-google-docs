@@ -1,13 +1,16 @@
 export declare class MinimalPoller {
-    private cwd;
     private statePath;
-    private mappingPath;
+    private dataDir;
     private drive;
     private docs;
-    constructor(cwd: string);
+    constructor(dataDir: string);
     private loadState;
     private saveState;
-    private loadMapping;
+    /**
+     * Load mapping using the plugin's standard mapping module.
+     * This ensures consistency with push/pull operations.
+     */
+    private getMapping;
     initIfNeeded(auth: any): Promise<string | null>;
     processOnce(auth: any): Promise<{
         matched: number;

@@ -250,7 +250,7 @@ console.warn('[gdocs] root index executing');
         console.log('[gdocs] Plugin onStart called');
         await j.commands.register({ name: 'gdocsHello', label: 'Google Docs Sync: Hello', execute: async () => { await j.views.dialogs.showMessageBox('Google Docs plugin is active.'); } });
         console.log('[gdocs] Registered gdocsHello command');
-        await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once (log-only)', execute: async () => { await pollOnce(); } });
+        await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once', execute: async () => { await pollOnce(); } });
         await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: Pull (update note)', execute: async () => { await pullNow(); } });

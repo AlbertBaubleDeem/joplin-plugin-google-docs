@@ -20,16 +20,12 @@ function loadJson(p, fallback) {
     }
 }
 class MinimalPoller {
-    constructor(cwd) {
-        this.cwd = cwd;
+    constructor(dataDir) {
         this.drive = googleapis_1.google.drive({ version: 'v3' });
         this.docs = googleapis_1.google.docs({ version: 'v1' });
-        const harnessState = path_1.default.resolve(cwd, 'google-api-tests/changes.state.json');
-        const harnessMapping = path_1.default.resolve(cwd, 'google-api-tests/mapping.json');
-        const flatState = path_1.default.resolve(cwd, 'changes.state.json');
-        const flatMapping = path_1.default.resolve(cwd, 'mapping.json');
-        this.statePath = fs_1.default.existsSync(harnessState) ? harnessState : flatState;
-        this.mappingPath = fs_1.default.existsSync(harnessMapping) ? harnessMapping : flatMapping;
+        this.dataDir = dataDir;
+        // State file for Drive Changes API pageToken
+        this.statePath = path_1.default.resolve(dataDir, 'changes.state.json');
     }
     loadState() {
         return loadJson(this.statePath, {});
@@ -37,8 +33,12 @@ class MinimalPoller {
     saveState(s) {
         fs_1.default.writeFileSync(this.statePath, JSON.stringify(s, null, 2));
     }
-    loadMapping() {
-        return loadJson(this.mappingPath, { notes: {}, notebooks: {} });
+    /**
+     * Load mapping using the plugin's standard mapping module.
+     * This ensures consistency with push/pull operations.
+     */
+    getMapping() {
+        return (0, mapping_1.loadMapping)(this.dataDir);
     }
     async initIfNeeded(auth) {
         const st = this.loadState();
@@ -57,7 +57,7 @@ class MinimalPoller {
             return { matched: 0, items: [] };
         const drive = googleapis_1.google.drive({ version: 'v3', auth });
         const docs = googleapis_1.google.docs({ version: 'v1', auth });
-        const mapping = this.loadMapping();
+        const mapping = this.getMapping();
         const fileIdToNoteId = {};
         for (const [noteId, b] of Object.entries(mapping.notes)) {
             if (b.fileId)
@@ -121,21 +121,29 @@ class MinimalPoller {
             }
         }
         // Fallback: direct revision comparison for mapped files not reported by Drive changes
+        // Batch these in parallel for performance
+        const uncheckedNotes = [];
         for (const [noteId, b] of Object.entries(mapping.notes)) {
             const fileId = b.fileId;
             if (!fileId || seenChanged[fileId])
                 continue;
-            try {
+            uncheckedNotes.push({ noteId, fileId, binding: b });
+        }
+        if (uncheckedNotes.length > 0) {
+            const revisionResults = await Promise.allSettled(uncheckedNotes.map(async ({ noteId, fileId, binding }) => {
                 const meta = await docs.documents.get({ documentId: fileId });
                 const rev = String(meta.data.revisionId || '');
-                if (rev && b.lastKnownRevisionId && rev !== b.lastKnownRevisionId) {
+                return { noteId, fileId, binding, rev };
+            }));
+            for (const result of revisionResults) {
+                if (result.status !== 'fulfilled')
+                    continue;
+                const { noteId, fileId, binding, rev } = result.value;
+                if (rev && binding.lastKnownRevisionId && rev !== binding.lastKnownRevisionId) {
                     console.info('[plugin-poller] Would update note (rev mismatch)', noteId, 'file', fileId);
                     matched += 1;
-                    items.push({ noteId, fileId, tabMatched: !!b.tabId });
+                    items.push({ noteId, fileId, tabMatched: !!binding.tabId });
                 }
-            }
-            catch (_) {
-                // ignore fetch errors
             }
         }
         return { matched, items };
@@ -145,10 +153,11 @@ class MinimalPoller {
         const base = await this.processOnce(auth);
         const drive = googleapis_1.google.drive({ version: 'v3', auth });
         const docs = googleapis_1.google.docs({ version: 'v1', auth });
-        const mapping = this.loadMapping();
-        const decisions = [];
-        for (const it of base.items) {
-            try {
+        const mapping = this.getMapping();
+        const allDecisions = [];
+        // Process Drive change items in parallel for performance
+        if (base.items.length > 0) {
+            const driveChangeResults = await Promise.allSettled(base.items.map(async (it) => {
                 const nb = (mapping.notes && mapping.notes[it.noteId]) || {};
                 const [noteUpdated, docModified, currentRevisionId] = await Promise.all([
                     fetchNoteUpdated(j, it.noteId),
@@ -162,38 +171,56 @@ class MinimalPoller {
                     docModified,
                     lastSyncTs: nb.lastSyncTs,
                 });
-                decisions.push({ ...it, action: d.action, reason: d.reason });
-            }
-            catch (_) {
-                // If metadata fetch fails, default to pull to avoid overwriting Docs
-                decisions.push({ ...it, action: 'pull', reason: 'metaError' });
+                return { ...it, action: d.action, reason: d.reason };
+            }));
+            for (let i = 0; i < driveChangeResults.length; i++) {
+                const result = driveChangeResults[i];
+                if (result.status === 'fulfilled') {
+                    allDecisions.push(result.value);
+                }
+                else {
+                    // If metadata fetch fails, default to pull to avoid overwriting Docs
+                    allDecisions.push({ ...base.items[i], action: 'pull', reason: 'metaError' });
+                }
             }
         }
         // Include locally updated notes since last sync even if Drive reported no change
-        const decidedNotes = new Set(decisions.map(d => d.noteId));
-        let extra = 0;
+        // Batch fetch all note metadata in parallel for performance
+        const decidedNotes = new Set(allDecisions.map(d => d.noteId));
+        const tolerance = 2000; // 2 second tolerance to avoid timing race
+        // Collect notes that need checking
+        const notesToCheck = [];
         for (const [noteId, nbAny] of Object.entries(mapping.notes)) {
             const nb = nbAny;
             const fileId = nb && nb.fileId;
             if (!fileId || decidedNotes.has(noteId))
                 continue;
-            try {
+            notesToCheck.push({ noteId, fileId, nb });
+        }
+        // Batch fetch note metadata in parallel (much faster than sequential)
+        if (notesToCheck.length > 0) {
+            const checkResults = await Promise.allSettled(notesToCheck.map(async ({ noteId, fileId, nb }) => {
                 const [noteUpdated, currentRevisionId] = await Promise.all([
                     fetchNoteUpdated(j, noteId),
                     fetchDocRevisionId(docs, fileId),
                 ]);
+                return { noteId, fileId, nb, noteUpdated, currentRevisionId };
+            }));
+            for (const result of checkResults) {
+                if (result.status !== 'fulfilled')
+                    continue;
+                const { noteId, fileId, nb, noteUpdated, currentRevisionId } = result.value;
                 const lastSync = Number(nb.lastSyncTs || 0);
                 const docUnchanged = !nb.lastKnownRevisionId || nb.lastKnownRevisionId === currentRevisionId;
-                if (noteUpdated > lastSync && docUnchanged) {
-                    decisions.push({ noteId, fileId, tabMatched: !!nb.tabId, action: 'push', reason: 'noteUpdatedNoDocChange' });
-                    extra += 1;
+                // Only push if note was updated significantly after lastSync (with tolerance)
+                if (noteUpdated > (lastSync + tolerance) && docUnchanged) {
+                    allDecisions.push({ noteId, fileId, tabMatched: !!nb.tabId, action: 'push', reason: 'noteUpdatedNoDocChange' });
                 }
             }
-            catch {
-                // ignore
-            }
         }
-        return { matched: base.matched + extra, decisions };
+        // Filter out 'skip' actions - only return items that need syncing
+        const decisions = allDecisions.filter(d => d.action !== 'skip');
+        return { matched: decisions.length, decisions };
     }
     // Execute decisions: push or pull items, update mapping metadata on success
     async syncOnce(auth, j, installDir, dataDir) {
@@ -208,9 +235,11 @@ class MinimalPoller {
                     updated += 1;
                 }
                 else {
-                    await executePull(j, docs, installDir, d.noteId, d.fileId);
-                    await updateMappingAfterPull(dataDir, docs, d.noteId, d.fileId);
-                    updated += 1;
+                    const pullResult = await executePull(j, docs, installDir, d.noteId, d.fileId);
+                    await updateMappingAfterPull(dataDir, docs, d.noteId, d.fileId, pullResult.noteUpdatedTime);
+                    if (pullResult.updated) {
+                        updated += 1;
+                    }
                 }
             }
             catch {
@@ -237,19 +266,39 @@ async function fetchDocRevisionId(docs, fileId) {
 function decideAction(args) {
     const { lastKnownRevisionId, currentRevisionId, noteUpdated, docModified, lastSyncTs } = args;
     const lastSync = Number(lastSyncTs || 0);
+    // Check if doc revision changed since last sync
     const docNewer = !!(lastKnownRevisionId && currentRevisionId && lastKnownRevisionId !== currentRevisionId);
     if (docNewer)
         return { action: 'pull', reason: 'docRevisionChanged' };
-    const noteNewer = noteUpdated > Math.max(docModified || 0, lastSync || 0);
-    return noteNewer ? { action: 'push', reason: 'noteUpdatedAfterDoc' } : { action: 'pull', reason: 'defaultPull' };
+    // Check if note was updated after doc and after last sync
+    // Add 2 second tolerance to avoid timing race conditions
+    const tolerance = 2000;
+    const noteNewer = noteUpdated > Math.max(docModified || 0, (lastSync || 0) + tolerance);
+    if (noteNewer)
+        return { action: 'push', reason: 'noteUpdatedAfterDoc' };
+    // Nothing changed - skip instead of defaulting to pull (which would cause sync loop)
+    return { action: 'skip', reason: 'noChanges' };
 }
 async function executePull(j, docs, installDir, noteId, fileId) {
     const sel = await (0, structure_1.buildConversionDocFromTabs)(docs, fileId, { tabId: undefined });
     const convertDoc = sel.convertDoc;
     const md = (0, converter_1.convertDocumentToMarkdown)(convertDoc, { installDir });
+    // Compare with existing note content to avoid unnecessary writes
+    // (Google Docs revisionId changes even without content changes)
+    const existingNote = await j.data.get(['notes', noteId], { fields: ['body', 'updated_time'] });
+    const existingBody = (existingNote.body || '').trim();
+    const newBody = md.trim();
+    if (existingBody === newBody) {
+        // Content is identical - skip the write, just update mapping
+        console.info('[plugin-poller] Skipping pull - content identical for note', noteId);
+        return { updated: false, noteUpdatedTime: Number(existingNote.updated_time || Date.now()) };
+    }
     await j.data.put(['notes', noteId], null, { body: md });
+    // Return the note's updated_time after the write
+    const noteMeta = await j.data.get(['notes', noteId], { fields: ['updated_time'] });
+    return { updated: true, noteUpdatedTime: Number(noteMeta.updated_time || Date.now()) };
 }
-async function updateMappingAfterPull(dataDir, docs, noteId, fileId) {
+async function updateMappingAfterPull(dataDir, docs, noteId, fileId, noteUpdatedTime) {
     const docMeta = await docs.documents.get({ documentId: fileId });
     const docRevisionId = String(docMeta.data.revisionId || '');
     const mapping = (0, mapping_1.loadMapping)(dataDir);
@@ -257,7 +306,8 @@ async function updateMappingAfterPull(dataDir, docs, noteId, fileId) {
     nb.fileId = fileId;
     if (docRevisionId)
         nb.lastKnownRevisionId = docRevisionId;
-    nb.lastSyncTs = Date.now();
+    // Use the actual note updated_time to prevent timing race
+    nb.lastSyncTs = noteUpdatedTime;
     mapping.notes[noteId] = nb;
     (0, mapping_1.saveMapping)(dataDir, mapping);
 }
