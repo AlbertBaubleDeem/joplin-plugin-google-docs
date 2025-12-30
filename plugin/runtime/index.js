@@ -20,6 +20,9 @@ console.warn('[gdocs] root index executing');
         errorStr.includes('token has been expired') ||
         errorStr.includes('token has been revoked') ||
         errorStr.includes('invalid_token') ||
+        errorStr.includes('no access, refresh token') ||
+        errorStr.includes('refresh handler callback is set') ||
+        errorStr.includes('enoent') && errorStr.includes('token') ||
         (e?.response?.status === 401);
       
       if (isAuthError) {
@@ -33,20 +36,20 @@ console.warn('[gdocs] root index executing');
               <span style="font-size: 36px;">🔑</span>
             </div>
             <h2 style="margin: 0 0 12px 0; color: var(--joplin-color); text-align: center;">
-              Authorization Expired
+              Authorization Required
             </h2>
             <p style="line-height: 1.6; color: var(--joplin-color); text-align: center;">
-              Your Google authorization has expired or was revoked.
+              Google authorization is missing or has expired.
             </p>
             <p style="line-height: 1.6; color: var(--joplin-color2); text-align: center; font-size: 13px;">
-              Click "Re-authorize" to sign in again with Google.
+              Click "Authorize" to sign in with your Google account.
             </p>
           </div>
         `;
         
         await j.views.dialogs.setHtml(dialog, html);
         await j.views.dialogs.setButtons(dialog, [
-          { id: 'reauth', title: 'Re-authorize' },
+          { id: 'reauth', title: 'Authorize Now' },
           { id: 'cancel', title: 'Cancel' },
         ]);
         
