@@ -112,17 +112,20 @@ export async function handleAuthError(
     try {
       const path = require('path');
       const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+      const { showSuccessDialog, showErrorDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
       const authResult = await reauthorize({ j, installDir, dataDir });
       
       if (authResult.success) {
-        await j.views.dialogs.showMessageBox('Re-authorization successful! Please try your action again.');
+        await showSuccessDialog(j, 'Re-authorization Successful', 'Please try your action again.');
         return true;
       } else {
-        await j.views.dialogs.showMessageBox('Re-authorization failed: ' + authResult.message);
+        await showErrorDialog(j, 'Re-authorization Failed', authResult.message);
         return false;
       }
     } catch (e: any) {
-      await j.views.dialogs.showMessageBox('Re-authorization error: ' + (e.message || e));
+      const pathModule = require('path');
+      const { showErrorDialog } = require(pathModule.resolve(installDir, 'dist/services/styledDialogs.js'));
+      await showErrorDialog(j, 'Re-authorization Error', e.message || String(e));
       return false;
     }
   }

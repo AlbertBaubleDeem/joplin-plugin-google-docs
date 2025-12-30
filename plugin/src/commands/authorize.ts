@@ -15,6 +15,12 @@ import {
   clearTokens,
   OAuthConfig,
 } from '../services/oauthServer';
+import {
+  showAuthInstructionsDialog,
+  showSuccessDialog,
+  showErrorDialog,
+  showInfoDialog,
+} from '../services/styledDialogs';
 
 /**
  * Load credentials from .env file in install directory.
@@ -106,13 +112,13 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
   const authUrl = generateAuthUrl(config);
   
   // Show instructions dialog
-  await j.views.dialogs.showMessageBox(
-    `Authorization will open in your browser.\n\n` +
-    `1. Sign in with your Google account\n` +
-    `2. Grant the requested permissions\n` +
-    `3. You'll be redirected back automatically\n\n` +
-    `Click OK to open the authorization page.`
-  );
+  const shouldContinue = await showAuthInstructionsDialog(j);
+  if (!shouldContinue) {
+    return {
+      success: false,
+      message: 'Authorization cancelled.',
+    };
+  }
   
   // Open browser (cross-platform)
   try {
@@ -120,9 +126,12 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
     shell.openExternal(authUrl);
   } catch {
     // Fallback: show URL for manual copy
-    await j.views.dialogs.showMessageBox(
-      `Could not open browser automatically.\n\nPlease copy this URL and paste it in your browser:\n\n${authUrl}`
-    );
+    await showInfoDialog(j, {
+      title: 'Open Browser Manually',
+      message: 'Could not open browser automatically.',
+      details: `Please copy this URL and paste it in your browser:\n\n${authUrl}`,
+      icon: '🌐',
+    });
   }
   
   // Start OAuth server and wait for callback

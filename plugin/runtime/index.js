@@ -301,12 +301,15 @@ console.warn('[gdocs] root index executing');
               const installDir = (await j.plugins.installationDir()) || '';
               const dataDir = await j.plugins.dataDir();
               const { authorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+              const { showSuccessDialog, showErrorDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
               const result = await authorize({ j, installDir, dataDir });
-              await j.views.dialogs.showMessageBox(result.message);
+              if (result.success) {
+                await showSuccessDialog(j, 'Authorization Complete', result.message);
+              } else {
+                await showErrorDialog(j, 'Authorization Failed', result.message);
+              }
             } catch (e) {
-              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-              await j.views.dialogs.showMessageBox('Authorization error: ' + msg);
+              await handleError(e, 'Authorization error');
             }
           }
         });
@@ -320,12 +323,15 @@ console.warn('[gdocs] root index executing');
               const installDir = (await j.plugins.installationDir()) || '';
               const dataDir = await j.plugins.dataDir();
               const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+              const { showSuccessDialog, showErrorDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
               const result = await reauthorize({ j, installDir, dataDir });
-              await j.views.dialogs.showMessageBox(result.message);
+              if (result.success) {
+                await showSuccessDialog(j, 'Re-authorization Complete', result.message);
+              } else {
+                await showErrorDialog(j, 'Re-authorization Failed', result.message);
+              }
             } catch (e) {
-              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-              await j.views.dialogs.showMessageBox('Re-authorization error: ' + msg);
+              await handleError(e, 'Re-authorization error');
             }
           }
         });
@@ -338,12 +344,15 @@ console.warn('[gdocs] root index executing');
               const path = require('path');
               const installDir = (await j.plugins.installationDir()) || '';
               const { checkAuthStatus } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+              const { showInfoDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
               const status = await checkAuthStatus({ installDir });
-              await j.views.dialogs.showMessageBox(`Authorization Status: ${status.authorized ? '✓' : '✗'}\n\n${status.message}`);
+              await showInfoDialog(j, {
+                title: 'Authorization Status',
+                message: status.message,
+                icon: status.authorized ? '✅' : '❌',
+              });
             } catch (e) {
-              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-              await j.views.dialogs.showMessageBox('Status check error: ' + msg);
+              await handleError(e, 'Status check error');
             }
           }
         });
@@ -359,13 +368,9 @@ console.warn('[gdocs] root index executing');
               const dataDir = await j.plugins.dataDir();
               const { runSetupWizard } = require(path.resolve(installDir, 'dist/commands/setupWizard.js'));
               const result = await runSetupWizard({ j, installDir, dataDir });
-              if (!result.cancelled) {
-                await j.views.dialogs.showMessageBox(result.message);
-              }
+              // Setup wizard shows its own completion dialog, no need to show another
             } catch (e) {
-              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-              await j.views.dialogs.showMessageBox('Setup wizard error: ' + msg);
+              await handleError(e, 'Setup wizard error');
             }
           }
         });
