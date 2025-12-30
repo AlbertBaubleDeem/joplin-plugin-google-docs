@@ -16,8 +16,10 @@ console.warn('[gdocs] root index executing');
       // Check if it's an auth error
       const errorStr = (typeof e === 'string' ? e : JSON.stringify(e)).toLowerCase();
       const errorMsg = (e?.message || '').toLowerCase();
+      const errorCode = e?.code || '';
       
       const isAuthError = 
+        // Google OAuth errors
         errorStr.includes('invalid_grant') ||
         errorStr.includes('token has been expired') ||
         errorStr.includes('token has been revoked') ||
@@ -27,9 +29,13 @@ console.warn('[gdocs] root index executing');
         errorStr.includes('refresh handler callback') ||
         errorMsg.includes('no access') ||
         errorMsg.includes('refresh token') ||
-        (e?.response?.status === 401);
+        (e?.response?.status === 401) ||
+        // Missing token file (ENOENT)
+        (errorCode === 'ENOENT' && errorStr.includes('token')) ||
+        (errorMsg.includes('enoent') && errorMsg.includes('token')) ||
+        errorStr.includes('.token.json');
       
-      console.log('[gdocs] handleError - isAuthError:', isAuthError, 'errorStr sample:', errorStr.substring(0, 200));
+      console.log('[gdocs] handleError - isAuthError:', isAuthError, 'code:', errorCode, 'msg:', errorMsg.substring(0, 100));
       
       if (isAuthError) {
         // Show re-auth dialog
