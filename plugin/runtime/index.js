@@ -272,6 +272,18 @@ console.warn('[gdocs] root index executing');
     j.plugins.register({
       onStart: async () => {
         console.log('[gdocs] Plugin onStart called');
+        
+        // Register settings first
+        try {
+          const path = require('path');
+          const installDir = (await j.plugins.installationDir()) || '';
+          const { registerSettings } = require(path.resolve(installDir, 'dist/services/settings.js'));
+          await registerSettings(j);
+          console.log('[gdocs] Registered plugin settings');
+        } catch (e) {
+          console.warn('[gdocs] Failed to register settings:', e);
+        }
+        
         await j.commands.register({ name: 'gdocsHello', label: 'Google Docs Sync: Hello', execute: async () => { await j.views.dialogs.showMessageBox('Google Docs plugin is active.'); } });
         console.log('[gdocs] Registered gdocsHello command');
         await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once', execute: async () => { await pollOnce(); } });
@@ -285,6 +297,98 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
         await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook to Drive Folder', execute: async () => { await exportNotebookCmd(); } });
         await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: Toggle Converter Debug', execute: async () => { await toggleConverterDebug(); } });
+        
+        // Authorization commands
+        await j.commands.register({
+          name: 'gdocsAuthorize',
+          label: 'Google Docs Sync: Authorize with Google',
+          execute: async () => {
+            try {
+              const path = require('path');
+              const installDir = (await j.plugins.installationDir()) || '';
+              const dataDir = await j.plugins.dataDir();
+              const { authorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+              const result = await authorize({ j, installDir, dataDir });
+              await j.views.dialogs.showMessageBox(result.message);
+            } catch (e) {
+              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+              await j.views.dialogs.showMessageBox('Authorization error: ' + msg);
+            }
+          }
+        });
+        
+        await j.commands.register({
+          name: 'gdocsReauthorize',
+          label: 'Google Docs Sync: Re-authorize (New Tokens)',
+          execute: async () => {
+            try {
+              const path = require('path');
+              const installDir = (await j.plugins.installationDir()) || '';
+              const dataDir = await j.plugins.dataDir();
+              const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+              const result = await reauthorize({ j, installDir, dataDir });
+              await j.views.dialogs.showMessageBox(result.message);
+            } catch (e) {
+              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+              await j.views.dialogs.showMessageBox('Re-authorization error: ' + msg);
+            }
+          }
+        });
+        
+        await j.commands.register({
+          name: 'gdocsAuthStatus',
+          label: 'Google Docs Sync: Check Auth Status',
+          execute: async () => {
+            try {
+              const path = require('path');
+              const installDir = (await j.plugins.installationDir()) || '';
+              const { checkAuthStatus } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
+              const status = await checkAuthStatus({ installDir });
+              await j.views.dialogs.showMessageBox(`Authorization Status: ${status.authorized ? '✓' : '✗'}\n\n${status.message}`);
+            } catch (e) {
+              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+              await j.views.dialogs.showMessageBox('Status check error: ' + msg);
+            }
+          }
+        });
+        
+        // Setup Wizard command
+        await j.commands.register({
+          name: 'gdocsSetupWizard',
+          label: 'Google Docs Sync: Setup Wizard',
+          execute: async () => {
+            try {
+              const path = require('path');
+              const installDir = (await j.plugins.installationDir()) || '';
+              const dataDir = await j.plugins.dataDir();
+              const { runSetupWizard } = require(path.resolve(installDir, 'dist/commands/setupWizard.js'));
+              const result = await runSetupWizard({ j, installDir, dataDir });
+              if (!result.cancelled) {
+                await j.views.dialogs.showMessageBox(result.message);
+              }
+            } catch (e) {
+              const raw = (e && e.response && e.response.data) || (e && e.message) || e;
+              const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+              await j.views.dialogs.showMessageBox('Setup wizard error: ' + msg);
+            }
+          }
+        });
+        
+        // Check if setup is needed on startup and show prompt
+        try {
+          const path = require('path');
+          const installDir = (await j.plugins.installationDir()) || '';
+          const { isSetupNeeded } = require(path.resolve(installDir, 'dist/commands/setupWizard.js'));
+          if (isSetupNeeded(installDir)) {
+            // Don't auto-launch, just log - user can run wizard manually
+            console.log('[gdocs] Setup needed - run "Setup Wizard" command to configure');
+          }
+        } catch (e) {
+          console.warn('[gdocs] Could not check setup status:', e);
+        }
         
         // Add notebook export to folder context menu
         await j.views.menuItems.create('notebookExportMenu', 'gdocsExportNotebook', 'folderContextMenu');
@@ -300,6 +404,97 @@ console.warn('[gdocs] root index executing');
           console.log('[gdocs] Registered note list renderer with sync status');
         } catch (e) {
           console.warn('[gdocs] Failed to register note list renderer:', e);
+        }
+        
+        // Background poller with configurable interval
+        let pollIntervalId = null;
+        
+        async function startBackgroundPoller() {
+          try {
+            const path = require('path');
+            const installDir = (await j.plugins.installationDir()) || '';
+            const dataDir = await j.plugins.dataDir();
+            const { getSettings } = require(path.resolve(installDir, 'dist/services/settings.js'));
+            const { hasValidTokens } = require(path.resolve(installDir, 'dist/services/oauthServer.js'));
+            
+            const settings = await getSettings(j);
+            
+            // Clear existing interval if any
+            if (pollIntervalId) {
+              clearInterval(pollIntervalId);
+              pollIntervalId = null;
+            }
+            
+            // Check if auto sync is enabled and tokens exist
+            if (!settings.autoSyncEnabled) {
+              console.log('[gdocs] Auto sync is disabled');
+              return;
+            }
+            
+            if (!hasValidTokens(installDir)) {
+              console.log('[gdocs] No valid tokens, skipping auto sync');
+              return;
+            }
+            
+            const intervalMs = (settings.pollIntervalMinutes || 5) * 60 * 1000;
+            if (intervalMs <= 0) {
+              console.log('[gdocs] Poll interval is 0, auto sync disabled');
+              return;
+            }
+            
+            console.log('[gdocs] Starting background poller with interval:', settings.pollIntervalMinutes, 'minutes');
+            
+            // Run poller function
+            async function runPoller() {
+              try {
+                console.log('[gdocs] Background sync running...');
+                const { MinimalPoller } = require(path.resolve(installDir, 'dist/poller.js'));
+                const { getAuthFromInstallDir } = require(path.resolve(installDir, 'dist/services/auth.js'));
+                const { google, auth } = await getAuthFromInstallDir(installDir);
+                const poller = new MinimalPoller(dataDir);
+                await poller.initIfNeeded(auth);
+                const syncRes = await poller.syncOnce(auth, j, installDir, dataDir);
+                console.log('[gdocs] Background sync complete. Matched:', syncRes.matched, 'Updated:', syncRes.updated);
+                
+                // Show notification if there were updates
+                if (syncRes.updated > 0) {
+                  // Using console for now - could use Joplin notifications API if available
+                  console.log('[gdocs] Synced', syncRes.updated, 'items');
+                }
+              } catch (e) {
+                console.error('[gdocs] Background sync error:', e);
+              }
+            }
+            
+            // Start interval
+            pollIntervalId = setInterval(runPoller, intervalMs);
+            
+            // Run immediately on start
+            setTimeout(runPoller, 5000); // Wait 5 seconds after startup
+            
+          } catch (e) {
+            console.error('[gdocs] Failed to start background poller:', e);
+          }
+        }
+        
+        // Start the poller
+        await startBackgroundPoller();
+        
+        // Listen for settings changes to restart poller
+        try {
+          await j.settings.onChange(async (event) => {
+            // Check if any of our sync settings changed
+            const relevantKeys = ['pollIntervalMinutes', 'autoSyncEnabled'];
+            const changed = Object.keys(event.keys || {}).some(k => 
+              relevantKeys.some(rk => k.endsWith(rk))
+            );
+            if (changed) {
+              console.log('[gdocs] Sync settings changed, restarting poller');
+              await startBackgroundPoller();
+            }
+          });
+        } catch (e) {
+          console.warn('[gdocs] Could not register settings change listener:', e);
         }
       },
     });
