@@ -34,10 +34,8 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
   const paragraphs: Paragraph[] = [];
   
   for (const token of tokens) {
-    const para = tokenToParagraph(token, cfg);
-    if (para) {
-      paragraphs.push(para);
-    }
+    const paras = tokenToParagraphs(token, cfg);
+    paragraphs.push(...paras);
   }
   
   // Apply title/subtitle rules
@@ -48,41 +46,42 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
 }
 
 /**
- * Convert a single marked token to a Paragraph.
+ * Convert a single marked token to one or more Paragraphs.
+ * Lists can produce multiple paragraphs.
  */
-function tokenToParagraph(token: Token, config: ConverterConfig): Paragraph | null {
+function tokenToParagraphs(token: Token, config: ConverterConfig): Paragraph[] {
   switch (token.type) {
     case 'heading':
-      return {
+      return [{
         type: 'heading',
         level: (token as Tokens.Heading).depth,
         spans: inlineTokensToSpans((token as Tokens.Heading).tokens || []),
-      };
+      }];
     
     case 'paragraph':
-      return {
+      return [{
         type: 'paragraph',
         spans: inlineTokensToSpans((token as Tokens.Paragraph).tokens || []),
-      };
+      }];
     
     case 'code':
       // Code block: single span with the raw code text
-      return {
+      return [{
         type: 'code_block',
         language: (token as Tokens.Code).lang || undefined,
         spans: [{ text: (token as Tokens.Code).text, code: true }],
-      };
+      }];
     
     case 'space':
       // Skip empty space tokens
-      return null;
+      return [];
     
     case 'hr':
       // Horizontal rule - render as paragraph with dashes
-      return {
+      return [{
         type: 'paragraph',
         spans: [{ text: '---' }],
-      };
+      }];
     
     case 'blockquote':
       // For now, flatten blockquote to paragraph with '>' prefix
@@ -93,42 +92,89 @@ function tokenToParagraph(token: Token, config: ConverterConfig): Paragraph | nu
           bqSpans.push(...inlineTokensToSpans((t as Tokens.Paragraph).tokens || []));
         }
       }
-      return {
+      return [{
         type: 'paragraph',
         spans: bqSpans,
-      };
+      }];
     
     case 'list':
-      // For now, flatten list items to paragraphs
-      // TODO: Better list handling in future
-      const listToken = token as Tokens.List;
-      const listParagraphs: Paragraph[] = [];
-      for (let i = 0; i < listToken.items.length; i++) {
-        const item = listToken.items[i];
-        const startNum = typeof listToken.start === 'number' ? listToken.start : 1;
-        const prefix = listToken.ordered ? `${startNum + i}. ` : '- ';
-        const itemSpans: StyledSpan[] = [{ text: prefix }];
-        for (const t of item.tokens || []) {
-          if (t.type === 'text' || t.type === 'paragraph') {
-            const textToken = t as Tokens.Text | Tokens.Paragraph;
-            if ('tokens' in textToken && textToken.tokens) {
-              itemSpans.push(...inlineTokensToSpans(textToken.tokens));
-            } else {
-              itemSpans.push({ text: textToken.text || '' });
-            }
-          }
-        }
-        listParagraphs.push({ type: 'paragraph', spans: itemSpans });
-      }
-      // Return first item, caller should handle multiple
-      // TODO: Return array of paragraphs for lists
-      return listParagraphs[0] || null;
+      // Flatten list items to paragraphs, including nested content
+      return processListToken(token as Tokens.List, config);
     
     default:
       // Unknown token type - log and skip
       debug('md-to-ir', 'unknown-token', { type: token.type, token });
-      return null;
+      return [];
   }
+}
+
+/**
+ * Process a list token into multiple paragraphs.
+ * Handles ordered/unordered lists and nested content within list items.
+ */
+function processListToken(listToken: Tokens.List, config: ConverterConfig): Paragraph[] {
+  const listParagraphs: Paragraph[] = [];
+  
+  for (let i = 0; i < listToken.items.length; i++) {
+    const item = listToken.items[i];
+    const startNum = typeof listToken.start === 'number' ? listToken.start : 1;
+    const prefix = listToken.ordered ? `${startNum + i}. ` : '- ';
+    
+    // First, collect the main text of the list item
+    const itemSpans: StyledSpan[] = [{ text: prefix }];
+    let hasMainContent = false;
+    
+    for (const t of item.tokens || []) {
+      if (t.type === 'text') {
+        const textToken = t as Tokens.Text;
+        if ('tokens' in textToken && textToken.tokens) {
+          itemSpans.push(...inlineTokensToSpans(textToken.tokens));
+        } else {
+          itemSpans.push({ text: textToken.text || '' });
+        }
+        hasMainContent = true;
+      } else if (t.type === 'paragraph') {
+        // First paragraph in loose list - add to main item
+        if (!hasMainContent) {
+          itemSpans.push(...inlineTokensToSpans((t as Tokens.Paragraph).tokens || []));
+          hasMainContent = true;
+        } else {
+          // Additional paragraphs - add as indented paragraphs
+          const paraSpans = inlineTokensToSpans((t as Tokens.Paragraph).tokens || []);
+          listParagraphs.push({ type: 'paragraph', spans: [{ text: '    ' }, ...paraSpans] });
+        }
+      } else if (t.type === 'list') {
+        // Nested list - first add the current item if we have content
+        if (hasMainContent || itemSpans.length > 1) {
+          listParagraphs.push({ type: 'paragraph', spans: itemSpans.slice() });
+          itemSpans.length = 1; // Reset to just prefix for next iteration
+          hasMainContent = false;
+        }
+        // Process nested list with indentation
+        const nestedParagraphs = processListToken(t as Tokens.List, config);
+        for (const nested of nestedParagraphs) {
+          // Add indentation to nested items
+          nested.spans.unshift({ text: '    ' });
+          listParagraphs.push(nested);
+        }
+      } else if (t.type === 'space') {
+        // Skip space tokens
+      } else {
+        // Other token types - try to extract text
+        debug('md-to-ir', 'list-item-unknown-token', { type: t.type, token: t });
+        if ('text' in t) {
+          itemSpans.push({ text: (t as any).text || '' });
+        }
+      }
+    }
+    
+    // Add the main list item if it has content
+    if (itemSpans.length > 1 || hasMainContent) {
+      listParagraphs.push({ type: 'paragraph', spans: itemSpans });
+    }
+  }
+  
+  return listParagraphs;
 }
 
 /**
