@@ -159,3 +159,20 @@ export type ConversionDebug = {
   timestamp: number;
 };
 
+/**
+ * An image reference extracted from Markdown.
+ * Used for tracking image positions and uploading to cloud storage.
+ */
+export type ImageRange = {
+  /** Position in the plain text where image should be inserted */
+  position: number;
+  /** Joplin resource ID (from :/resourceId syntax) */
+  resourceId: string;
+  /** Alt text from Markdown ![alt](url) */
+  altText?: string;
+  /** Optional title from Markdown ![alt](url "title") */
+  title?: string;
+  /** Original markdown for reference/debugging */
+  originalMarkdown: string;
+};
+
