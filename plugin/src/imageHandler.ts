@@ -9,6 +9,11 @@
  * - GCS allows temporary public access that works reliably with Docs API
  * - Bucket lifecycle policies handle automatic cleanup
  * 
+ * Image Format Support:
+ * - Natively supported by Docs API: PNG, JPEG, GIF
+ * - Auto-converted using Canvas API: WebP, BMP, TIFF, AVIF
+ * - Conversion leverages Electron/Chromium's native decoders
+ * 
  * Security:
  * - Images are public only for the brief moment needed for Docs API to fetch
  * - Public access is revoked immediately after insertion
@@ -19,6 +24,75 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { ImageRange } from './converter/types';
+
+/**
+ * Convert image to PNG using browser/Electron Canvas API
+ * This works because Joplin runs in Electron which supports WebP natively
+ * 
+ * @param imageData - Base64 encoded image data
+ * @param sourceMime - Source MIME type
+ * @param debugLog - Debug logging function
+ * @returns Base64 encoded PNG data
+ */
+async function convertToPngUsingCanvas(
+  imageData: string,
+  sourceMime: string,
+  debugLog?: (msg: string) => void
+): Promise<string> {
+  const log = debugLog || (() => {});
+  
+  log(`    Converting ${sourceMime} to PNG using Canvas...`);
+  
+  return new Promise((resolve, reject) => {
+    // Create an Image element
+    const img = new Image();
+    
+    img.onload = () => {
+      log(`    Image loaded: ${img.width}x${img.height}`);
+      
+      // Create a canvas to draw the image
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas 2D context'));
+        return;
+      }
+      
+      // Draw the image onto the canvas
+      ctx.drawImage(img, 0, 0);
+      
+      // Export as PNG (data URL)
+      const pngDataUrl = canvas.toDataURL('image/png');
+      
+      // Extract base64 from data URL
+      const base64 = pngDataUrl.split(',')[1];
+      log(`    Converted to PNG: ${base64.length} chars`);
+      
+      resolve(base64);
+    };
+    
+    img.onerror = (e) => {
+      log(`    Image load error: ${e}`);
+      reject(new Error(`Failed to load image: ${e}`));
+    };
+    
+    // Load the image from base64 data URL
+    img.src = `data:${sourceMime};base64,${imageData}`;
+  });
+}
+
+/**
+ * MIME types that can be converted to PNG using Canvas
+ */
+const CONVERTIBLE_MIME_TYPES = new Set([
+  'image/webp',
+  'image/bmp',
+  'image/tiff',
+  'image/avif',
+]);
 
 export interface JoplinResource {
   id: string;
@@ -146,6 +220,8 @@ const SUPPORTED_MIME_TYPES = new Set([
 function isSupportedFormat(mimeType: string): boolean {
   return SUPPORTED_MIME_TYPES.has(mimeType);
 }
+
+
 
 /**
  * Get file extension from MIME type
@@ -371,15 +447,17 @@ export async function processImages(
       }
       log(`  Resource: ${resource.filename}, mime=${resource.mime}`);
       
-      // Check if format is supported by Google Docs
-      const mimeType = resource.mime || 'image/png';
-      if (!isSupportedFormat(mimeType)) {
-        log(`  SKIP: Unsupported format ${mimeType} - Google Docs only supports PNG, JPEG, GIF`);
+      // Check if format is supported or convertible
+      let mimeType = resource.mime || 'image/png';
+      const needsConversion = !isSupportedFormat(mimeType) && CONVERTIBLE_MIME_TYPES.has(mimeType);
+      
+      if (!isSupportedFormat(mimeType) && !needsConversion) {
+        log(`  SKIP: Unsupported format ${mimeType} - cannot convert`);
         continue;
       }
       
       // Get resource data
-      const imageData = await getResourceData(j, imageRange.resourceId, log);
+      let imageData = await getResourceData(j, imageRange.resourceId, log);
       if (!imageData) {
         log(`  SKIP: Could not get data`);
         continue;
@@ -390,6 +468,19 @@ export async function processImages(
       if (typeof imageData !== 'string' || imageData.length === 0) {
         log(`  SKIP: Invalid data type or empty`);
         continue;
+      }
+      
+      // Convert to PNG if needed using Canvas API
+      if (needsConversion) {
+        log(`  Converting ${mimeType} to PNG...`);
+        try {
+          imageData = await convertToPngUsingCanvas(imageData, mimeType, log);
+          mimeType = 'image/png';
+          log(`  Conversion successful: ${imageData.length} chars`);
+        } catch (convError: any) {
+          log(`  SKIP: Conversion failed - ${convError?.message || convError}`);
+          continue;
+        }
       }
       
       // Generate unique object name using MIME type for correct extension
@@ -469,3 +560,4 @@ export function buildImageInsertRequests(
   console.log(`[imageHandler] Built ${requests.length} insert requests`);
   return requests;
 }
+
