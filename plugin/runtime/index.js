@@ -173,8 +173,15 @@ console.warn('[gdocs] root index executing');
     async function pushNow() {
       try {
         const path = require('path');
+        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
+        
+        // Check GCS configuration
+        const settingsMod = require(path.resolve(installDir, 'dist/services/settings.js'));
+        const gcsBucket = settingsMod.getGCSBucketName(installDir);
+        console.log('[gdocs] Push - GCS bucket:', gcsBucket || 'NOT CONFIGURED');
+        console.log('[gdocs] Push - installDir:', installDir);
         
         // Enable debug mode if toggled on - MUST be done before requiring commands
         if (converterDebugEnabled) {
@@ -187,17 +194,29 @@ console.warn('[gdocs] root index executing');
         const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
         const res = await mod.pushNote({ j, installDir, dataDir });
         
-        if (converterDebugEnabled) {
-          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
-          const logPath = converter.getDebugLogPath();
-          await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId + '\n\nDebug log: ' + logPath);
-        } else {
-          await j.views.dialogs.showMessageBox('Pushed note to Google Doc. revisionId=' + res.newRevisionId);
-        }
+        // Show debug log in message box
+        const debugSummary = res.debugLog ? res.debugLog.join('\n') : 'No debug log';
+        
+        // Show debug log in message box for troubleshooting
+        await j.views.dialogs.showMessageBox(
+          'Push Result\n\n' +
+          'revisionId: ' + res.newRevisionId + '\n\n' +
+          '=== Debug Log ===\n' + debugSummary
+        );
       } catch (e) {
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox('Push error: ' + msg);
+        
+        // Get debug log from file
+        let debugSummary = 'No debug log';
+        try {
+          const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
+          debugSummary = mod.getDebugLogFromFile ? mod.getDebugLogFromFile(dataDir) : 'No file reader';
+        } catch (logErr) {
+          debugSummary = 'Error reading log: ' + logErr.message;
+        }
+        
+        await j.views.dialogs.showMessageBox('Push error: ' + msg + '\n\n=== Debug Log ===\n' + debugSummary);
       }
     }
 

@@ -39,14 +39,16 @@ export { markdownToIR } from './md-to-ir';
 export { docsToIR, mergeAdjacentSpans } from './docs-to-ir';
 export { irToMarkdown, normalizeMarkdown } from './ir-to-md';
 export { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests } from './ir-to-docs';
+export { extractImages, calculateImagePositions, hasJoplinImages } from './image-extractor';
 
 // Import for backward-compatible wrappers
 import { markdownToIR } from './md-to-ir';
 import { docsToIR } from './docs-to-ir';
 import { irToMarkdown } from './ir-to-md';
 import { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests } from './ir-to-docs';
+import { extractImages, calculateImagePositions, hasJoplinImages } from './image-extractor';
 import { loadConfig, setInstallDir } from './config';
-import type { ParaRange, TextRange, ConverterConfig } from './types';
+import type { ParaRange, TextRange, ImageRange, ConverterConfig } from './types';
 
 /**
  * Convert Markdown to plain text and style ranges.
@@ -54,21 +56,40 @@ import type { ParaRange, TextRange, ConverterConfig } from './types';
  * This is a backward-compatible wrapper that matches the old converter API.
  * Internally, it uses: markdown → IR → plainTextWithRanges
  * 
+ * Now also extracts images and returns their positions for later insertion.
+ * 
  * @param mdRaw - The Markdown source
  * @param opts - Options including installDir for config
- * @returns Plain text and style ranges
+ * @returns Plain text, style ranges, and image ranges
  */
 export function convertMarkdownToPlainAndStyles(
   mdRaw: string,
   opts?: { installDir?: string }
-): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[] } {
+): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[]; imageRanges: ImageRange[] } {
   if (opts?.installDir) {
     setInstallDir(opts.installDir);
   }
   
   const config = loadConfig(opts?.installDir);
-  const ir = markdownToIR(mdRaw, config);
-  return irToPlainTextWithRanges(ir, opts?.installDir);
+  
+  // Step 1: Extract images and replace with placeholders
+  const { markdownWithPlaceholders, images } = extractImages(mdRaw);
+  
+  // Step 2: Convert markdown (with placeholders) to IR
+  const ir = markdownToIR(markdownWithPlaceholders, config);
+  
+  // Step 3: Convert IR to plain text with style ranges
+  const { plain: plainWithPlaceholders, paraRanges: rawParaRanges, textRanges: rawTextRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
+  
+  // Step 4: Calculate image positions, remove placeholders, and adjust ranges
+  const { cleanPlainText, imageRanges, adjustedParaRanges, adjustedTextRanges } = calculateImagePositions(
+    plainWithPlaceholders, 
+    images,
+    rawParaRanges,
+    rawTextRanges
+  );
+  
+  return { plain: cleanPlainText, paraRanges: adjustedParaRanges, textRanges: adjustedTextRanges, imageRanges };
 }
 
 /**

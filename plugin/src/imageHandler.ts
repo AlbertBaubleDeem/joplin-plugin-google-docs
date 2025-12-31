@@ -17,6 +17,7 @@
  */
 
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import { ImageRange } from './converter/types';
 
 export interface JoplinResource {
@@ -47,7 +48,8 @@ export interface ProcessImagesResult {
  */
 export async function getResourceInfo(j: any, resourceId: string): Promise<JoplinResource | null> {
   try {
-    const resource = await j.data.get(['resources', resourceId]);
+    // Must specify fields explicitly - Joplin API doesn't return all fields by default
+    const resource = await j.data.get(['resources', resourceId], { fields: ['id', 'mime', 'filename', 'size'] });
     return resource;
   } catch (error) {
     console.error(`[imageHandler] Failed to get resource ${resourceId}:`, error);
@@ -58,25 +60,37 @@ export async function getResourceInfo(j: any, resourceId: string): Promise<Jopli
 /**
  * Get resource binary data from Joplin as base64
  */
-export async function getResourceData(j: any, resourceId: string): Promise<string | null> {
+export async function getResourceData(j: any, resourceId: string, debugLog?: (msg: string) => void): Promise<string | null> {
+  const log = debugLog || (() => {});
+  
   try {
     // Try workspace.resourcePath API first (more reliable)
     try {
+      log(`    Trying workspace.resourcePath...`);
       const resourcePath = await j.workspace.resourcePath(resourceId);
+      log(`    Path: ${resourcePath}`);
       if (resourcePath) {
         const fs = require('fs');
-        const data = fs.readFileSync(resourcePath);
-        return data.toString('base64');
+        if (fs.existsSync(resourcePath)) {
+          const data = fs.readFileSync(resourcePath);
+          log(`    Read ${data.length} bytes from file`);
+          return data.toString('base64');
+        } else {
+          log(`    File does not exist at path`);
+        }
       }
     } catch (e: any) {
-      console.warn(`[imageHandler] Workspace API failed for ${resourceId}:`, e?.message);
+      log(`    Workspace API error: ${e?.message}`);
     }
     
     // Fallback to data API
     try {
+      log(`    Trying data.get file API...`);
       const resourceData = await j.data.get(['resources', resourceId, 'file']);
+      log(`    Got response type: ${typeof resourceData}, isBuffer: ${Buffer.isBuffer(resourceData)}`);
       
       if (typeof resourceData === 'string') {
+        log(`    String length: ${resourceData.length}`);
         if (resourceData.match(/^[A-Za-z0-9+/]+=*$/)) {
           return resourceData;
         }
@@ -87,15 +101,30 @@ export async function getResourceData(j: any, resourceId: string): Promise<strin
       } else if (Buffer.isBuffer(resourceData)) {
         return resourceData.toString('base64');
       } else if (resourceData?.type === 'Buffer' && Array.isArray(resourceData.data)) {
+        log(`    Buffer-like object with ${resourceData.data.length} bytes`);
         return Buffer.from(resourceData.data).toString('base64');
+      } else if (resourceData?.type === 'attachment' && resourceData?.body) {
+        // Joplin returns {type: 'attachment', body: {0: byte, 1: byte, ...}}
+        const body = resourceData.body;
+        const keys = Object.keys(body).map(k => parseInt(k, 10)).sort((a, b) => a - b);
+        log(`    Attachment format, ${keys.length} keys, max key: ${keys[keys.length - 1]}`);
+        const bytes = keys.map(k => body[k]);
+        log(`    Extracted ${bytes.length} bytes, first 4: [${bytes.slice(0, 4).join(', ')}]`);
+        const buffer = Buffer.from(bytes);
+        log(`    Buffer size: ${buffer.length} bytes`);
+        const base64 = buffer.toString('base64');
+        log(`    Base64 length: ${base64.length} chars`);
+        return base64;
+      } else {
+        log(`    Unknown data format: ${JSON.stringify(resourceData)?.substring(0, 100)}`);
       }
     } catch (error: any) {
-      console.error(`[imageHandler] Data API failed for ${resourceId}:`, error?.message);
+      log(`    Data API error: ${error?.message}`);
     }
     
     return null;
   } catch (error: any) {
-    console.error(`[imageHandler] Failed to get resource data ${resourceId}:`, error?.message);
+    log(`    Fatal error: ${error?.message}`);
     return null;
   }
 }
@@ -113,7 +142,8 @@ function generateUniqueObjectName(resourceId: string, originalFilename?: string)
 /**
  * Upload an image to Google Cloud Storage
  * 
- * @param storage - Google Storage API client
+ * @param auth - Google OAuth2 client
+ * @param storage - Google Storage API client (for ACL calls)
  * @param bucketName - GCS bucket name
  * @param imageData - Base64 encoded image data
  * @param objectName - Object name in the bucket
@@ -121,12 +151,16 @@ function generateUniqueObjectName(resourceId: string, originalFilename?: string)
  * @returns Public URL of the uploaded image
  */
 export async function uploadImageToGCS(
+  auth: any,
   storage: any,
   bucketName: string,
   imageData: string,
   objectName: string,
-  mimeType: string
+  mimeType: string,
+  debugLog?: (msg: string) => void
 ): Promise<string> {
+  const log = debugLog || (() => {});
+  
   // Validate input
   if (!imageData) {
     throw new Error('No image data provided');
@@ -137,32 +171,73 @@ export async function uploadImageToGCS(
   
   // Convert base64 to buffer
   const buffer = Buffer.from(imageData, 'base64');
+  log(`    Buffer created: ${buffer.length} bytes`);
   if (buffer.length === 0) {
     throw new Error('Image buffer is empty');
   }
   
-  console.log(`[imageHandler] Uploading ${objectName} to GCS bucket ${bucketName} (${buffer.length} bytes)`);
+  // Use direct HTTP upload - googleapis streams don't work in Joplin sandbox
+  log(`    Using direct HTTP upload...`);
   
-  // Create readable stream from buffer
-  const { Readable } = require('stream');
-  const stream = Readable.from(buffer);
+  // Get access token from the auth client
+  const accessToken = await auth.getAccessToken();
+  log(`    Got access token: ${accessToken?.token ? 'yes' : 'no'}`);
   
-  // Upload to GCS
-  await storage.objects.insert({
-    bucket: bucketName,
-    name: objectName,
-    media: {
-      mimeType: mimeType || 'image/png',
-      body: stream,
-    },
-    requestBody: {
-      name: objectName,
-      contentType: mimeType || 'image/png',
-      metadata: {
-        source: 'joplin-google-docs-plugin',
+  // GCS simple upload endpoint
+  const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
+  
+  // Use Node's https module directly
+  const https = require('https');
+  const { URL } = require('url');
+  
+  const uploadResult = await new Promise<{ size: number }>((resolve, reject) => {
+    const url = new URL(uploadUrl);
+    
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken.token}`,
+        'Content-Type': mimeType || 'image/png',
+        'Content-Length': buffer.length,
       },
-    },
+    };
+    
+    log(`    POST to ${url.hostname}${url.pathname}...`);
+    
+    const req = https.request(options, (res: any) => {
+      let data = '';
+      res.on('data', (chunk: any) => { data += chunk; });
+      res.on('end', () => {
+        log(`    Response status: ${res.statusCode}`);
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const json = JSON.parse(data);
+            log(`    Uploaded size: ${json.size}`);
+            resolve({ size: parseInt(json.size, 10) });
+          } catch (e) {
+            log(`    Parse error: ${e}`);
+            resolve({ size: 0 });
+          }
+        } else {
+          log(`    Upload failed: ${data.substring(0, 200)}`);
+          reject(new Error(`Upload failed: ${res.statusCode} - ${data.substring(0, 200)}`));
+        }
+      });
+    });
+    
+    req.on('error', (e: any) => {
+      log(`    Request error: ${e.message}`);
+      reject(e);
+    });
+    
+    // Write the buffer directly
+    req.write(buffer);
+    req.end();
   });
+  
+  log(`    Direct upload completed, size: ${uploadResult.size}`);
   
   console.log(`[imageHandler] Uploaded: ${objectName}`);
   
@@ -227,47 +302,61 @@ export async function cleanupImageAccess(
  */
 export async function processImages(
   j: any,
+  auth: any,
   storage: any,
   bucketName: string,
-  imageRanges: ImageRange[]
+  imageRanges: ImageRange[],
+  debugLog?: (msg: string) => void
 ): Promise<ProcessImagesResult> {
+  const log = debugLog || (() => {});
   const resourceIdToUrl = new Map<string, string>();
   const uploadedObjects: GCSUploadResult[] = [];
   
-  for (const imageRange of imageRanges) {
+  log(`processImages: ${imageRanges.length} images, bucket: ${bucketName}`);
+  
+  for (let i = 0; i < imageRanges.length; i++) {
+    const imageRange = imageRanges[i];
+    log(`Image ${i + 1}/${imageRanges.length}: ${imageRange.resourceId}`);
+    
     try {
       // Get resource info
       const resource = await getResourceInfo(j, imageRange.resourceId);
       if (!resource) {
-        console.warn(`[imageHandler] Resource ${imageRange.resourceId} not found`);
+        log(`  SKIP: Resource not found`);
         continue;
       }
+      log(`  Resource: ${resource.filename}, mime=${resource.mime}`);
       
       // Get resource data
-      const imageData = await getResourceData(j, imageRange.resourceId);
+      const imageData = await getResourceData(j, imageRange.resourceId, log);
       if (!imageData) {
-        console.warn(`[imageHandler] Could not get data for resource ${imageRange.resourceId}`);
+        log(`  SKIP: Could not get data`);
         continue;
       }
+      log(`  Data: ${imageData.length} chars`);
       
       // Validate base64 data
       if (typeof imageData !== 'string' || imageData.length === 0) {
-        console.warn(`[imageHandler] Invalid image data for ${imageRange.resourceId}`);
+        log(`  SKIP: Invalid data type or empty`);
         continue;
       }
       
       // Generate unique object name
       const objectName = generateUniqueObjectName(imageRange.resourceId, resource.filename);
       const mimeType = resource.mime || 'image/png';
+      log(`  Uploading: ${objectName}`);
       
-      // Upload to GCS
+      // Upload to GCS using auth directly
       const publicUrl = await uploadImageToGCS(
+        auth,
         storage,
         bucketName,
         imageData,
         objectName,
-        mimeType
+        mimeType,
+        log
       );
+      log(`  SUCCESS: ${publicUrl}`);
       
       resourceIdToUrl.set(imageRange.resourceId, publicUrl);
       uploadedObjects.push({
@@ -276,13 +365,12 @@ export async function processImages(
         resourceId: imageRange.resourceId,
       });
       
-      console.log(`[imageHandler] Processed ${resource.filename || imageRange.resourceId} -> ${publicUrl}`);
-      
     } catch (error: any) {
-      console.error(`[imageHandler] Error processing image ${imageRange.resourceId}:`, error?.message);
+      log(`  ERROR: ${error?.message || error}`);
     }
   }
   
+  log(`processImages complete: ${uploadedObjects.length} uploaded`);
   return { resourceIdToUrl, uploadedObjects };
 }
 
@@ -292,11 +380,13 @@ export async function processImages(
 export function buildImageInsertRequests(
   imageRanges: ImageRange[],
   resourceIdToUrl: Map<string, string>,
-  textOffset: number = 0
+  textOffset: number = 0,
+  debugLog?: (msg: string) => void
 ): any[] {
+  const log = debugLog || (() => {});
   const requests: any[] = [];
   
-  console.log(`[imageHandler] Building insert requests for ${imageRanges.length} images`);
+  log(`Building insert requests for ${imageRanges.length} images`);
   
   // Sort images by position in reverse order (insert from end to start)
   // This preserves positions as we insert
@@ -305,12 +395,13 @@ export function buildImageInsertRequests(
   for (const imageRange of sortedImages) {
     const publicUrl = resourceIdToUrl.get(imageRange.resourceId);
     if (!publicUrl) {
-      console.warn(`[imageHandler] No URL for resource ${imageRange.resourceId}`);
+      log(`  No URL for resource ${imageRange.resourceId}`);
       continue;
     }
     
     // Calculate insertion position (+1 for Docs API 1-based indexing)
     const insertPosition = imageRange.position + textOffset + 1;
+    log(`  Image at pos ${insertPosition}: ${publicUrl}`);
     
     requests.push({
       insertInlineImage: {
