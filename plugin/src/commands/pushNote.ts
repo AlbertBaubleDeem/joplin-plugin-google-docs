@@ -82,10 +82,15 @@ async function executePush(
   ctx: SyncContext,
   j: any,
   noteId: string,
-  fileId: string
+  fileId: string,
+  dataDir: string
 ): Promise<{ newRevisionId: string; debugLog: string[] }> {
   const { google, auth, docs, installDir } = ctx;
 
+  // Initialize debug log file for persistence
+  setDebugLogPath(dataDir);
+  clearDebugLog();
+  
   debugLog(`=== executePush for note ${noteId} ===`);
 
   // Read note body (Markdown) using NoteOperations
@@ -298,7 +303,7 @@ export async function pushNote(params: Params): Promise<PushResult> {
   const fileId = binding.fileId;
 
   // Execute the push
-  const result = await executePush(ctx, j, noteId, fileId);
+  const result = await executePush(ctx, j, noteId, fileId, dataDir);
 
   // Update mapping
   await updateMappingAfterPush(ctx, noteId, fileId, result.newRevisionId);

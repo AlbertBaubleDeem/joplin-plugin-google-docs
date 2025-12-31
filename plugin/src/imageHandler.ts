@@ -130,10 +130,48 @@ export async function getResourceData(j: any, resourceId: string, debugLog?: (ms
 }
 
 /**
+ * Supported image formats for Google Docs API
+ * Only JPEG, PNG, and non-animated GIF are supported
+ */
+const SUPPORTED_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+]);
+
+/**
+ * Check if a MIME type is supported by Google Docs
+ */
+function isSupportedFormat(mimeType: string): boolean {
+  return SUPPORTED_MIME_TYPES.has(mimeType);
+}
+
+/**
+ * Get file extension from MIME type
+ */
+function getExtensionFromMime(mimeType: string): string {
+  const mimeToExt: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/gif': 'gif',
+  };
+  return mimeToExt[mimeType] || 'png';
+}
+
+/**
  * Generate a unique object name for GCS
  */
-function generateUniqueObjectName(resourceId: string, originalFilename?: string): string {
-  const ext = originalFilename ? originalFilename.split('.').pop() || 'png' : 'png';
+function generateUniqueObjectName(resourceId: string, mimeType?: string, originalFilename?: string): string {
+  // Prefer extension from MIME type, then from filename, then default to png
+  let ext = 'png';
+  if (mimeType) {
+    ext = getExtensionFromMime(mimeType);
+  } else if (originalFilename) {
+    ext = originalFilename.split('.').pop() || 'png';
+  }
+  
   const timestamp = Date.now();
   const randomBytes = crypto.randomBytes(8).toString('hex');
   return `joplin_${timestamp}_${randomBytes}_${resourceId.substring(0, 8)}.${ext}`;
@@ -242,6 +280,7 @@ export async function uploadImageToGCS(
   console.log(`[imageHandler] Uploaded: ${objectName}`);
   
   // Make object temporarily public
+  log(`    Setting public ACL...`);
   await storage.objectAccessControls.insert({
     bucket: bucketName,
     object: objectName,
@@ -251,10 +290,15 @@ export async function uploadImageToGCS(
     },
   });
   
-  console.log(`[imageHandler] Made public: ${objectName}`);
+  log(`    Made public: ${objectName}`);
+  
+  // Wait for ACL propagation - GCS can take 1-2 seconds to propagate ACL changes
+  log(`    Waiting 2s for ACL propagation...`);
+  await new Promise(resolve => setTimeout(resolve, 2000));
   
   // Build public URL
   const publicUrl = `https://storage.googleapis.com/${bucketName}/${encodeURIComponent(objectName)}`;
+  log(`    Public URL: ${publicUrl}`);
   return publicUrl;
 }
 
@@ -327,6 +371,13 @@ export async function processImages(
       }
       log(`  Resource: ${resource.filename}, mime=${resource.mime}`);
       
+      // Check if format is supported by Google Docs
+      const mimeType = resource.mime || 'image/png';
+      if (!isSupportedFormat(mimeType)) {
+        log(`  SKIP: Unsupported format ${mimeType} - Google Docs only supports PNG, JPEG, GIF`);
+        continue;
+      }
+      
       // Get resource data
       const imageData = await getResourceData(j, imageRange.resourceId, log);
       if (!imageData) {
@@ -341,9 +392,8 @@ export async function processImages(
         continue;
       }
       
-      // Generate unique object name
-      const objectName = generateUniqueObjectName(imageRange.resourceId, resource.filename);
-      const mimeType = resource.mime || 'image/png';
+      // Generate unique object name using MIME type for correct extension
+      const objectName = generateUniqueObjectName(imageRange.resourceId, mimeType, resource.filename);
       log(`  Uploading: ${objectName}`);
       
       // Upload to GCS using auth directly
