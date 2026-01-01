@@ -55,8 +55,17 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
   }
   
   // Join paragraphs with appropriate spacing
-  // Self-delimiting paragraphs (code blocks, images) get single newline
-  // Regular paragraphs get double newline between them
+  // 
+  // Self-delimiting elements (code blocks, images) don't need blank lines BEFORE them
+  // since they are visually distinct. But regular paragraphs following them still
+  // need a blank line to be proper markdown paragraphs.
+  //
+  // Rules:
+  // - Text → Self-delimiting: single newline (no blank line needed before code/image)
+  // - Self-delimiting → Self-delimiting: single newline
+  // - Self-delimiting → Text: double newline (text needs to be new paragraph)
+  // - Text → Text: double newline (standard paragraph separation)
+  //
   const parts: string[] = [];
   for (let i = 0; i < converted.length; i++) {
     const current = converted[i];
@@ -64,11 +73,14 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
     
     if (i === 0) {
       parts.push(current.text);
-    } else if (current.isSelfDelimiting || prev?.isSelfDelimiting) {
-      // Single newline before/after self-delimiting elements
+    } else if (current.isSelfDelimiting) {
+      // Self-delimiting elements don't need blank line before them
       parts.push('\n' + current.text);
+    } else if (prev?.isSelfDelimiting) {
+      // Regular paragraph after self-delimiting: needs blank line to be new paragraph
+      parts.push('\n\n' + current.text);
     } else {
-      // Double newline between regular paragraphs
+      // Regular paragraph after regular paragraph: standard blank line
       parts.push('\n\n' + current.text);
     }
   }
