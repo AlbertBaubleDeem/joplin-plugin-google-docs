@@ -1,5 +1,9 @@
+/**
+ * autoPairRun - Auto-pair notes with Google Docs using SyncContext
+ */
+
 import * as path from 'path';
-import { getAuthFromInstallDir } from '../services/auth';
+import { createSyncContext } from '../services/SyncContext';
 
 type Params = {
   j: any;
@@ -9,11 +13,11 @@ type Params = {
 
 export async function autoPairRun(params: Params): Promise<{ folderId: string; scanned: number; created: number; linkedExisting: number; ensuredMapping: number }> {
   const { j, installDir, dataDir } = params;
-  const { google, auth } = await getAuthFromInstallDir(installDir);
+  
+  // Use SyncContext for authenticated API access
+  const ctx = await createSyncContext(installDir, dataDir);
 
   const folderId = process.env.GOOGLE_SYNC_FOLDER_ID || '';
   const mod = require(path.resolve(installDir, 'dist/commands/autoPair.js'));
-  return await mod.autoPair({ j, google, auth, installDir, dataDir, folderId });
+  return await mod.autoPair({ j, google: ctx.google, auth: ctx.auth, installDir, dataDir, folderId });
 }
-
-

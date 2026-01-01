@@ -1,9 +1,8 @@
-import type { DriveLike, NoteBinding } from '../mapping';
+import type { NoteBinding } from '../mapping';
 import {
   loadMapping,
   saveMapping,
   getBinding,
-  setDriveAppProperties,
 } from '../mapping';
 import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converter';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
@@ -25,12 +24,14 @@ type Params = {
   dataDir: string;
   /** Optional noteId - if not provided, uses the currently selected note */
   noteId?: string;
+  /** Optional pre-created SyncContext - avoids re-authentication if provided */
+  ctx?: SyncContext;
 };
 
 /**
  * Result of a successful push operation
  */
-type PushResult = {
+export type PushResult = {
   noteId: string;
   fileId: string;
   newRevisionId: string;
@@ -250,7 +251,7 @@ async function updateMappingAfterPush(
   fileId: string,
   newRevisionId: string
 ): Promise<void> {
-  const { drive, dataDir } = ctx;
+  const { dataDir } = ctx;
   const mapping = loadMapping(dataDir);
 
   const nb: NoteBinding = mapping.notes[noteId] || {};
@@ -260,9 +261,9 @@ async function updateMappingAfterPush(
   mapping.notes[noteId] = nb;
   saveMapping(dataDir, mapping);
 
-  // Update Drive appProperties (best-effort)
+  // Update Drive appProperties via provider (best-effort)
   try {
-    await setDriveAppProperties(drive as unknown as DriveLike, fileId, {
+    await ctx.provider.updateAppProperties(fileId, {
       lastKnownRevisionId: newRevisionId,
       lastSyncTs: new Date().toISOString(),
     });
@@ -289,9 +290,9 @@ export async function pushNote(params: Params): Promise<PushResult> {
   clearDebugLog();
   debugLog('pushNote started');
   
-  // Create sync context with authenticated API clients
+  // Create sync context with authenticated API clients (or use provided one)
   debugLog('Creating sync context...');
-  const ctx = await createSyncContext(installDir, dataDir);
+  const ctx = params.ctx || await createSyncContext(installDir, dataDir);
   debugLog('Sync context created');
 
   // Determine the note ID using NoteOperations

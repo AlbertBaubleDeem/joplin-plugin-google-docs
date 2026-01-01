@@ -1,5 +1,11 @@
-import { getAuthFromInstallDir } from '../services/auth';
-import { bindNote, setDriveAppProperties, type DriveLike } from '../mapping';
+/**
+ * drivePickerDialog - Open a dialog to pick and import Google Docs
+ * 
+ * Uses SyncContext for authenticated API access.
+ */
+
+import { createSyncContext } from '../services/SyncContext';
+import { bindNote } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
 import { convertDocumentToMarkdown } from '../converter';
 
@@ -7,8 +13,10 @@ type Params = { j: any; installDir: string; dataDir: string };
 
 export async function openDrivePickerDialog(params: Params): Promise<{ selected: string[]; created: number; bound: number }>{
   const { j, installDir, dataDir } = params;
-  const { google, auth } = await getAuthFromInstallDir(installDir);
-  const drive = google.drive({ version: 'v3', auth });
+  
+  // Use SyncContext for authenticated API access
+  const ctx = await createSyncContext(installDir, dataDir);
+  const { drive } = ctx;
 
   async function listDocs(query: string): Promise<Array<{ id?: string; name?: string; modifiedTime?: string }>> {
     const esc = (query || '').replace(/'/g, "\\'");
@@ -195,14 +203,13 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
       const title = (meta?.name && String(meta.name)) || 'Imported Document';
       
       try {
-        const docs = google.docs({ version: 'v1', auth });
-        const sel = await buildConversionDocFromTabs(docs, fid, { tabId: undefined });
+        const sel = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
         const md = convertDocumentToMarkdown((sel as any).convertDoc, { installDir });
         const newNote = await j.data.post(['notes'], null, { title, body: md });
         bindNote(dataDir, newNote.id, { fileId: fid });
         
         try { 
-          await setDriveAppProperties(drive as unknown as DriveLike, fid, { joplinNoteId: newNote.id }); 
+          await ctx.provider.updateAppProperties(fid, { joplinNoteId: newNote.id }); 
         } catch (_) {
           // Ignore appProperties errors (likely due to permissions)
         }

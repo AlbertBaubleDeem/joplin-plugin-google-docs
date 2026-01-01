@@ -1,9 +1,20 @@
+/**
+ * MinimalPoller - Handles bidirectional sync between Joplin notes and Google Docs
+ *
+ * Uses SyncContext for authenticated API access and delegates to pullNote/pushNote commands.
+ */
+import { SyncContext } from './services/SyncContext';
 export declare class MinimalPoller {
     private statePath;
-    private dataDir;
-    private drive;
-    private docs;
-    constructor(dataDir: string);
+    private ctx;
+    /**
+     * Create a new MinimalPoller
+     * @param ctx - SyncContext with authenticated API clients
+     */
+    constructor(ctx: SyncContext);
+    private get dataDir();
+    private get drive();
+    private get docs();
     private loadState;
     private saveState;
     /**
@@ -11,8 +22,16 @@ export declare class MinimalPoller {
      * This ensures consistency with push/pull operations.
      */
     private getMapping;
-    initIfNeeded(auth: any): Promise<string | null>;
-    processOnce(auth: any): Promise<{
+    /**
+     * Initialize the poller state if needed
+     * @returns The existing pageToken, or null if we just initialized
+     */
+    initIfNeeded(): Promise<string | null>;
+    /**
+     * Process Drive changes once, returning items that need syncing
+     * @returns Matched items with their file/note IDs
+     */
+    processOnce(): Promise<{
         matched: number;
         items: Array<{
             noteId: string;
@@ -20,7 +39,12 @@ export declare class MinimalPoller {
             tabMatched: boolean;
         }>;
     }>;
-    decideOnce(auth: any, j: any): Promise<{
+    /**
+     * Decide push vs pull per item by comparing revisionId and timestamps
+     * @param j - Joplin API
+     * @returns Decisions for each item that needs syncing
+     */
+    decideOnce(j: any): Promise<{
         matched: number;
         decisions: Array<{
             noteId: string;
@@ -30,7 +54,14 @@ export declare class MinimalPoller {
             reason: string;
         }>;
     }>;
-    syncOnce(auth: any, j: any, installDir: string, dataDir: string): Promise<{
+    /**
+     * Execute sync decisions: push or pull items
+     * Uses pullNote() and pushNote() commands to avoid duplicate logic
+     *
+     * @param j - Joplin API
+     * @returns Sync results with decision details
+     */
+    syncOnce(j: any): Promise<{
         matched: number;
         updated: number;
         decisions: Array<{

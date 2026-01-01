@@ -1,13 +1,15 @@
 /**
  * exportNotebook - Export a Joplin notebook as individual Google Docs in a folder
+ * 
+ * Uses GoogleDocsProvider for document operations.
  */
 
-import { loadMapping, saveMapping, bindNote, APP_PROPERTY_NOTE_ID, PLUGIN_ID } from '../mapping';
+import { loadMapping, saveMapping, bindNote, PLUGIN_ID } from '../mapping';
 import { createSyncContext } from '../services/SyncContext';
-import { ensureSyncFolder, createSubfolder } from '../services/SyncFolderManager';
 import { getSelectedFolder, getFolderById, getNotesInFolder } from '../services/NoteOperations';
 import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converter';
 
+const APP_PROPERTY_NOTE_ID = 'joplinNoteId';
 const APP_PROPERTY_NOTEBOOK_ID = 'joplinNotebookId';
 
 /**
@@ -109,16 +111,16 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
     );
   }
 
-  // Ensure sync folder exists
-  const syncFolderId = await ensureSyncFolder(ctx.drive, dataDir);
+  // Ensure sync folder exists via provider
+  const syncFolderId = await ctx.provider.ensureSyncFolder();
 
-  // Create a folder for the notebook inside sync folder
+  // Create a folder for the notebook inside sync folder via provider
   console.log('[exportNotebook] Creating folder for notebook:', folderData.title);
-  const notebookFolderId = await createSubfolder(
-    ctx.drive,
-    syncFolderId,
-    folderData.title || 'Untitled Notebook'
+  const notebookFolder = await ctx.provider.createFolder(
+    folderData.title || 'Untitled Notebook',
+    syncFolderId
   );
+  const notebookFolderId = notebookFolder.id;
 
   // Create individual Google Docs for each note
   console.log('[exportNotebook] Creating individual documents for each note in the notebook');
@@ -130,21 +132,12 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
     const note = unboundNotes[i];
     console.log(`[exportNotebook] Creating document ${i + 1}/${unboundNotes.length} for note: ${note.title}`);
 
-    // Create the document
-    const docRes = await ctx.docs.documents.create({
-      requestBody: {
-        title: note.title || `Note ${i + 1}`,
-      },
-    });
-
-    const docId = docRes.data.documentId!;
-
-    // Move to notebook folder
-    await ctx.drive.files.update({
-      fileId: docId,
-      addParents: notebookFolderId,
-      fields: 'id,parents',
-    });
+    // Create the document via provider (in the notebook folder)
+    const createResult = await ctx.provider.createDocument(
+      note.title || `Note ${i + 1}`,
+      notebookFolderId
+    );
+    const docId = createResult.metadata.id;
 
     // Convert note content to Google Docs format
     const { plain, paraRanges, textRanges } = convertMarkdownToPlainAndStyles(
@@ -152,41 +145,20 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
       converterOpts
     );
 
-    // Build batch requests for content and formatting
-    const batchRequests: any[] = [];
+    // Update document with content via provider
+    await ctx.provider.updateDocument(docId, { plainText: plain });
 
-    // Insert the plain text
-    batchRequests.push({
-      insertText: {
-        location: { index: 1 },
-        text: plain,
-      },
-    });
-
-    // Apply formatting (monoFont is handled internally by converter)
+    // Apply formatting via provider
     const formatRequests = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
-    batchRequests.push(...formatRequests);
-
-    // Apply the content and formatting
-    if (batchRequests.length > 0) {
-      await ctx.docs.documents.batchUpdate({
-        documentId: docId,
-        requestBody: {
-          requests: batchRequests,
-        },
-      });
+    if (formatRequests.length > 0) {
+      await ctx.provider.applyFormattingRequests(docId, formatRequests);
     }
 
-    // Set app properties for each document
-    await ctx.drive.files.update({
-      fileId: docId,
-      requestBody: {
-        appProperties: {
-          [APP_PROPERTY_NOTE_ID]: note.id,
-          pluginId: PLUGIN_ID,
-          [APP_PROPERTY_NOTEBOOK_ID]: folderId,
-        },
-      },
+    // Set app properties for binding via provider
+    await ctx.provider.updateAppProperties(docId, {
+      [APP_PROPERTY_NOTE_ID]: note.id,
+      pluginId: PLUGIN_ID,
+      [APP_PROPERTY_NOTEBOOK_ID]: folderId!,
     });
 
     // Update local binding for this note
@@ -198,6 +170,7 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
   }
 
   // Set notebook folder app properties
+  // Note: Using direct drive call since provider doesn't have folder-specific appProperties method
   await ctx.drive.files.update({
     fileId: notebookFolderId,
     requestBody: {
@@ -207,6 +180,7 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
         noteCount: String(unboundNotes.length),
       },
     },
+    supportsAllDrives: true,
   });
 
   // Update local mappings - reload to get the note bindings we just created

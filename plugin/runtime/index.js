@@ -10,17 +10,22 @@ console.warn('[gdocs] root index executing');
     async function pollOnce() {
       try {
         const path = require('path');
-        const fs = require('fs');
         const dataDir = await j.plugins.dataDir();
         const installDir = (await j.plugins.installationDir()) || '';
+        
+        // Use SyncContext for authenticated API access (consistent with commands)
+        const { createSyncContext } = require(path.resolve(installDir, 'dist/services/SyncContext.js'));
+        const ctx = await createSyncContext(installDir, dataDir);
+        
+        // Create poller with SyncContext
         const pollerPath = path.resolve(installDir, 'dist/poller.js');
         const { MinimalPoller } = require(pollerPath);
-        const { getAuthFromInstallDir } = require(path.resolve(installDir, 'dist/services/auth.js'));
-        const { google, auth } = await getAuthFromInstallDir(installDir);
-        const poller = new MinimalPoller(dataDir);
-        const maybe = await poller.initIfNeeded(auth);
+        const poller = new MinimalPoller(ctx);
+        
+        const maybe = await poller.initIfNeeded();
         if (maybe === null) { await j.views.dialogs.showMessageBox('Initialized Drive pageToken. Run Poll Once again.'); return; }
-        const syncRes = await poller.syncOnce(auth, j, installDir, dataDir);
+        
+        const syncRes = await poller.syncOnce(j);
         const lines = (syncRes.decisions || []).map(d => `- noteId=${d.noteId} fileId=${d.fileId} action=${d.action} reason=${d.reason} tabMatched=${d.tabMatched}`);
         await j.views.dialogs.showMessageBox('Poll completed. Matches: ' + syncRes.matched + ' Updated: ' + syncRes.updated + (lines.length ? ('\n' + lines.join('\n')) : ''));
       } catch (e) {
