@@ -368,11 +368,7 @@ export async function uploadImageToGCS(
   
   log(`    Made public: ${objectName}`);
   
-  // Wait for ACL propagation - GCS can take 1-2 seconds to propagate ACL changes
-  log(`    Waiting 2s for ACL propagation...`);
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Build public URL
+  // Build public URL (don't wait here - wait once after all images are uploaded)
   const publicUrl = `https://storage.googleapis.com/${bucketName}/${encodeURIComponent(objectName)}`;
   log(`    Public URL: ${publicUrl}`);
   return publicUrl;
@@ -418,7 +414,98 @@ export async function cleanupImageAccess(
 }
 
 /**
+ * Process a single image - get data, convert if needed, upload to GCS
+ * Returns null if the image cannot be processed
+ */
+async function processSingleImage(
+  j: any,
+  auth: any,
+  storage: any,
+  bucketName: string,
+  imageRange: ImageRange,
+  index: number,
+  total: number,
+  debugLog?: (msg: string) => void
+): Promise<GCSUploadResult | null> {
+  const log = debugLog || (() => {});
+  log(`Image ${index + 1}/${total}: ${imageRange.resourceId}`);
+  
+  try {
+    // Get resource info
+    const resource = await getResourceInfo(j, imageRange.resourceId);
+    if (!resource) {
+      log(`  SKIP: Resource not found`);
+      return null;
+    }
+    log(`  Resource: ${resource.filename}, mime=${resource.mime}`);
+    
+    // Check if format is supported or convertible
+    let mimeType = resource.mime || 'image/png';
+    const needsConversion = !isSupportedFormat(mimeType) && CONVERTIBLE_MIME_TYPES.has(mimeType);
+    
+    if (!isSupportedFormat(mimeType) && !needsConversion) {
+      log(`  SKIP: Unsupported format ${mimeType} - cannot convert`);
+      return null;
+    }
+    
+    // Get resource data
+    let imageData = await getResourceData(j, imageRange.resourceId, log);
+    if (!imageData) {
+      log(`  SKIP: Could not get data`);
+      return null;
+    }
+    log(`  Data: ${imageData.length} chars`);
+    
+    // Validate base64 data
+    if (typeof imageData !== 'string' || imageData.length === 0) {
+      log(`  SKIP: Invalid data type or empty`);
+      return null;
+    }
+    
+    // Convert to PNG if needed using Canvas API
+    if (needsConversion) {
+      log(`  Converting ${mimeType} to PNG...`);
+      try {
+        imageData = await convertToPngUsingCanvas(imageData, mimeType, log);
+        mimeType = 'image/png';
+        log(`  Conversion successful: ${imageData.length} chars`);
+      } catch (convError: any) {
+        log(`  SKIP: Conversion failed - ${convError?.message || convError}`);
+        return null;
+      }
+    }
+    
+    // Generate unique object name using MIME type for correct extension
+    const objectName = generateUniqueObjectName(imageRange.resourceId, mimeType, resource.filename);
+    log(`  Uploading: ${objectName}`);
+    
+    // Upload to GCS using auth directly
+    const publicUrl = await uploadImageToGCS(
+      auth,
+      storage,
+      bucketName,
+      imageData,
+      objectName,
+      mimeType,
+      log
+    );
+    log(`  SUCCESS: ${publicUrl}`);
+    
+    return {
+      objectName,
+      publicUrl,
+      resourceId: imageRange.resourceId,
+    };
+    
+  } catch (error: any) {
+    log(`  ERROR: ${error?.message || error}`);
+    return null;
+  }
+}
+
+/**
  * Process all images in a note - upload to GCS and return URLs
+ * Uses parallel processing for better performance
  */
 export async function processImages(
   j: any,
@@ -434,81 +521,44 @@ export async function processImages(
   
   log(`processImages: ${imageRanges.length} images, bucket: ${bucketName}`);
   
-  for (let i = 0; i < imageRanges.length; i++) {
-    const imageRange = imageRanges[i];
-    log(`Image ${i + 1}/${imageRanges.length}: ${imageRange.resourceId}`);
+  // Process images in parallel (with concurrency limit to avoid overwhelming the API)
+  const CONCURRENCY_LIMIT = 5;
+  const results: (GCSUploadResult | null)[] = [];
+  
+  for (let i = 0; i < imageRanges.length; i += CONCURRENCY_LIMIT) {
+    const batch = imageRanges.slice(i, i + CONCURRENCY_LIMIT);
+    log(`Processing batch ${Math.floor(i / CONCURRENCY_LIMIT) + 1}: ${batch.length} images`);
     
-    try {
-      // Get resource info
-      const resource = await getResourceInfo(j, imageRange.resourceId);
-      if (!resource) {
-        log(`  SKIP: Resource not found`);
-        continue;
-      }
-      log(`  Resource: ${resource.filename}, mime=${resource.mime}`);
-      
-      // Check if format is supported or convertible
-      let mimeType = resource.mime || 'image/png';
-      const needsConversion = !isSupportedFormat(mimeType) && CONVERTIBLE_MIME_TYPES.has(mimeType);
-      
-      if (!isSupportedFormat(mimeType) && !needsConversion) {
-        log(`  SKIP: Unsupported format ${mimeType} - cannot convert`);
-        continue;
-      }
-      
-      // Get resource data
-      let imageData = await getResourceData(j, imageRange.resourceId, log);
-      if (!imageData) {
-        log(`  SKIP: Could not get data`);
-        continue;
-      }
-      log(`  Data: ${imageData.length} chars`);
-      
-      // Validate base64 data
-      if (typeof imageData !== 'string' || imageData.length === 0) {
-        log(`  SKIP: Invalid data type or empty`);
-        continue;
-      }
-      
-      // Convert to PNG if needed using Canvas API
-      if (needsConversion) {
-        log(`  Converting ${mimeType} to PNG...`);
-        try {
-          imageData = await convertToPngUsingCanvas(imageData, mimeType, log);
-          mimeType = 'image/png';
-          log(`  Conversion successful: ${imageData.length} chars`);
-        } catch (convError: any) {
-          log(`  SKIP: Conversion failed - ${convError?.message || convError}`);
-          continue;
-        }
-      }
-      
-      // Generate unique object name using MIME type for correct extension
-      const objectName = generateUniqueObjectName(imageRange.resourceId, mimeType, resource.filename);
-      log(`  Uploading: ${objectName}`);
-      
-      // Upload to GCS using auth directly
-      const publicUrl = await uploadImageToGCS(
-        auth,
-        storage,
-        bucketName,
-        imageData,
-        objectName,
-        mimeType,
-        log
-      );
-      log(`  SUCCESS: ${publicUrl}`);
-      
-      resourceIdToUrl.set(imageRange.resourceId, publicUrl);
-      uploadedObjects.push({
-        objectName,
-        publicUrl,
-        resourceId: imageRange.resourceId,
-      });
-      
-    } catch (error: any) {
-      log(`  ERROR: ${error?.message || error}`);
+    const batchResults = await Promise.all(
+      batch.map((imageRange, batchIndex) =>
+        processSingleImage(
+          j,
+          auth,
+          storage,
+          bucketName,
+          imageRange,
+          i + batchIndex,
+          imageRanges.length,
+          log
+        )
+      )
+    );
+    
+    results.push(...batchResults);
+  }
+  
+  // Collect successful uploads
+  for (const result of results) {
+    if (result) {
+      resourceIdToUrl.set(result.resourceId, result.publicUrl);
+      uploadedObjects.push(result);
     }
+  }
+  
+  // Wait for ACL propagation ONCE after all images are uploaded
+  if (uploadedObjects.length > 0) {
+    log(`Waiting 2s for ACL propagation (single wait for all ${uploadedObjects.length} images)...`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
   
   log(`processImages complete: ${uploadedObjects.length} uploaded`);
