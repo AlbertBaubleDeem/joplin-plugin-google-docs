@@ -11,13 +11,22 @@ import { debug } from './debug';
 
 /**
  * Check if a paragraph contains only an image reference.
- * Image-only paragraphs should be joined with single newlines to avoid extra blank lines.
  */
 function isImageOnlyParagraph(para: Paragraph): boolean {
   if (para.spans.length !== 1) return false;
   const text = para.spans[0].text.trim();
   // Match Joplin image syntax: ![alt](:/resourceId) or ![](:/resourceId)
   return /^!\[.*?\]\(:\/[a-fA-F0-9]{32}\)$/.test(text);
+}
+
+/**
+ * Check if a paragraph is self-delimiting and doesn't need extra blank lines.
+ * 
+ * - Code blocks: Triple backticks are self-delimiting
+ * - Images: Already visually distinct as inline elements
+ */
+function isSelfDelimitingParagraph(para: Paragraph): boolean {
+  return para.type === 'code_block' || isImageOnlyParagraph(para);
 }
 
 /**
@@ -32,21 +41,22 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
   
   debug('ir-to-md', 'input', doc);
   
-  // Convert paragraphs and track which are image-only
-  const converted: { text: string; isImageOnly: boolean }[] = [];
+  // Convert paragraphs and track which are self-delimiting
+  const converted: { text: string; isSelfDelimiting: boolean }[] = [];
   
   for (const para of doc) {
     const line = paragraphToMarkdown(para, cfg);
     if (line !== null) {
       converted.push({
         text: line,
-        isImageOnly: isImageOnlyParagraph(para),
+        isSelfDelimiting: isSelfDelimitingParagraph(para),
       });
     }
   }
   
   // Join paragraphs with appropriate spacing
-  // Image-only paragraphs get single newline, others get double
+  // Self-delimiting paragraphs (code blocks, images) get single newline
+  // Regular paragraphs get double newline between them
   const parts: string[] = [];
   for (let i = 0; i < converted.length; i++) {
     const current = converted[i];
@@ -54,8 +64,8 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
     
     if (i === 0) {
       parts.push(current.text);
-    } else if (current.isImageOnly || prev?.isImageOnly) {
-      // Single newline before/after images to keep them tight with surrounding text
+    } else if (current.isSelfDelimiting || prev?.isSelfDelimiting) {
+      // Single newline before/after self-delimiting elements
       parts.push('\n' + current.text);
     } else {
       // Double newline between regular paragraphs
