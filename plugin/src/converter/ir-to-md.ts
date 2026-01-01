@@ -10,6 +10,17 @@ import { loadConfig } from './config';
 import { debug } from './debug';
 
 /**
+ * Check if a paragraph contains only an image reference.
+ * Image-only paragraphs should be joined with single newlines to avoid extra blank lines.
+ */
+function isImageOnlyParagraph(para: Paragraph): boolean {
+  if (para.spans.length !== 1) return false;
+  const text = para.spans[0].text.trim();
+  // Match Joplin image syntax: ![alt](:/resourceId) or ![](:/resourceId)
+  return /^!\[.*?\]\(:\/[a-fA-F0-9]{32}\)$/.test(text);
+}
+
+/**
  * Convert IR document to Markdown string.
  * 
  * @param doc - The IR document
@@ -21,16 +32,38 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
   
   debug('ir-to-md', 'input', doc);
   
-  const lines: string[] = [];
+  // Convert paragraphs and track which are image-only
+  const converted: { text: string; isImageOnly: boolean }[] = [];
   
   for (const para of doc) {
     const line = paragraphToMarkdown(para, cfg);
     if (line !== null) {
-      lines.push(line);
+      converted.push({
+        text: line,
+        isImageOnly: isImageOnlyParagraph(para),
+      });
     }
   }
   
-  const result = lines.join('\n\n');
+  // Join paragraphs with appropriate spacing
+  // Image-only paragraphs get single newline, others get double
+  const parts: string[] = [];
+  for (let i = 0; i < converted.length; i++) {
+    const current = converted[i];
+    const prev = i > 0 ? converted[i - 1] : null;
+    
+    if (i === 0) {
+      parts.push(current.text);
+    } else if (current.isImageOnly || prev?.isImageOnly) {
+      // Single newline before/after images to keep them tight with surrounding text
+      parts.push('\n' + current.text);
+    } else {
+      // Double newline between regular paragraphs
+      parts.push('\n\n' + current.text);
+    }
+  }
+  
+  const result = parts.join('');
   debug('ir-to-md', 'result', result);
   return result;
 }
