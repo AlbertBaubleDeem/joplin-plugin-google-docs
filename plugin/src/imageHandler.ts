@@ -566,16 +566,28 @@ export async function processImages(
 }
 
 /**
+ * Result of building image insert requests
+ */
+export interface ImageInsertRequestsResult {
+  /** The Docs API requests for insertInlineImage */
+  requests: any[];
+  /** Original markdown for each request (same order as requests) */
+  originalMarkdowns: string[];
+}
+
+/**
  * Build Docs API requests to insert images
+ * Returns both the requests and the original markdown for each (to set as description later)
  */
 export function buildImageInsertRequests(
   imageRanges: ImageRange[],
   resourceIdToUrl: Map<string, string>,
   textOffset: number = 0,
   debugLog?: (msg: string) => void
-): any[] {
+): ImageInsertRequestsResult {
   const log = debugLog || (() => {});
   const requests: any[] = [];
+  const originalMarkdowns: string[] = [];
   
   log(`Building insert requests for ${imageRanges.length} images`);
   
@@ -604,10 +616,58 @@ export function buildImageInsertRequests(
       }
     });
     
+    // Track the original markdown for this image (to set as description)
+    originalMarkdowns.push(imageRange.originalMarkdown);
+    
     console.log(`[imageHandler] Insert at ${insertPosition}: ${publicUrl}`);
   }
   
   console.log(`[imageHandler] Built ${requests.length} insert requests`);
+  return { requests, originalMarkdowns };
+}
+
+/**
+ * Build Docs API requests to update inline object descriptions
+ * This sets the original Joplin markdown as the image description for roundtrip sync
+ * 
+ * @param objectIds - Object IDs from insertInlineImage responses (same order as requests)
+ * @param originalMarkdowns - Original markdown for each image (same order as requests)
+ */
+export function buildImageDescriptionRequests(
+  objectIds: string[],
+  originalMarkdowns: string[],
+  debugLog?: (msg: string) => void
+): any[] {
+  const log = debugLog || (() => {});
+  const requests: any[] = [];
+  
+  log(`Building description requests for ${objectIds.length} images`);
+  
+  for (let i = 0; i < objectIds.length; i++) {
+    const objectId = objectIds[i];
+    const markdown = originalMarkdowns[i];
+    
+    if (!objectId || !markdown) {
+      log(`  Skipping index ${i}: objectId=${objectId}, markdown=${markdown?.substring(0, 20)}`);
+      continue;
+    }
+    
+    log(`  Setting description for ${objectId}: ${markdown}`);
+    
+    requests.push({
+      updateInlineObjectProperties: {
+        objectId,
+        inlineObjectProperties: {
+          embeddedObject: {
+            description: markdown,
+          }
+        },
+        fields: 'embeddedObject.description',
+      }
+    });
+  }
+  
+  log(`Built ${requests.length} description requests`);
   return requests;
 }
 

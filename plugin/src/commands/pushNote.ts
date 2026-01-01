@@ -11,6 +11,7 @@ import { getGCSBucketName } from '../services/settings';
 import {
   processImages,
   buildImageInsertRequests,
+  buildImageDescriptionRequests,
   cleanupImageAccess,
   GCSUploadResult,
 } from '../imageHandler';
@@ -197,7 +198,7 @@ async function executePush(
     debugLog(`Building image insert requests...`);
     debugLog(`Plain text length: ${plain.length}, Doc endIndex: ${endIndexAfterText}`);
     debugLog(`First image position: ${imageRanges[0]?.position}, Last image position: ${imageRanges[imageRanges.length-1]?.position}`);
-    const imageRequests = buildImageInsertRequests(imageRanges, resourceIdToUrl, 0, debugLog);
+    const { requests: imageRequests, originalMarkdowns } = buildImageInsertRequests(imageRanges, resourceIdToUrl, 0, debugLog);
     debugLog(`Built ${imageRequests.length} image requests`);
     
     if (imageRequests.length > 0) {
@@ -206,15 +207,24 @@ async function executePush(
       if (imageRequests[0]) {
         debugLog(`Sample request: ${JSON.stringify(imageRequests[0])}`);
       }
+      
+      let insertedObjectIds: string[] = [];
       try {
         const imgResult = await docs.documents.batchUpdate({
           documentId: fileId,
           requestBody: { requests: imageRequests },
         });
         debugLog(`Image batchUpdate succeeded`);
-        // Log the response to see what happened
+        // Extract object IDs from replies (same order as requests)
         const replies = (imgResult.data as any)?.replies || [];
         debugLog(`Got ${replies.length} replies from batchUpdate`);
+        
+        insertedObjectIds = replies.map((reply: any) => {
+          const objectId = reply?.insertInlineImage?.objectId;
+          return objectId || '';
+        });
+        debugLog(`Extracted ${insertedObjectIds.filter(id => id).length} object IDs`);
+        
         if (replies[0]) {
           debugLog(`First reply: ${JSON.stringify(replies[0])}`);
         }
@@ -222,6 +232,25 @@ async function executePush(
         debugLog(`Image batchUpdate ERROR: ${imgError?.message || imgError}`);
         debugLog(`Error details: ${JSON.stringify(imgError?.response?.data || {})}`);
         throw imgError;
+      }
+      
+      // Set descriptions on inserted images (stores original markdown for roundtrip)
+      if (insertedObjectIds.length > 0) {
+        debugLog(`Setting descriptions for ${insertedObjectIds.length} images...`);
+        const descRequests = buildImageDescriptionRequests(insertedObjectIds, originalMarkdowns, debugLog);
+        
+        if (descRequests.length > 0) {
+          try {
+            await docs.documents.batchUpdate({
+              documentId: fileId,
+              requestBody: { requests: descRequests },
+            });
+            debugLog(`Description batchUpdate succeeded`);
+          } catch (descError: any) {
+            // Don't fail the push if description setting fails
+            debugLog(`Description batchUpdate ERROR (non-fatal): ${descError?.message || descError}`);
+          }
+        }
       }
       
       // Get final revisionId after image insertion

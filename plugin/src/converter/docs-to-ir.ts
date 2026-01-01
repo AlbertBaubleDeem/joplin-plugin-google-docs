@@ -3,6 +3,11 @@
  * 
  * Parses Google Docs document structure (from documents.get API)
  * and converts it to the intermediate representation (IR).
+ * 
+ * Handles:
+ * - Text runs with styles (bold, italic, code, links)
+ * - Inline images (via inlineObjectElement with description for roundtrip)
+ * - Paragraph styles (headings, code blocks, etc.)
  */
 
 import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig } from './types';
@@ -29,22 +34,30 @@ type DocsParagraphStyle = {
 };
 
 /**
+ * Google Docs inline object dictionary (from top-level inlineObjects).
+ * Maps objectId -> inlineObject data.
+ */
+type InlineObjectsDict = Record<string, any>;
+
+/**
  * Convert a Google Docs document to IR.
  * 
- * @param doc - The document object from documents.get API
+ * @param doc - The document object from documents.get API (should include inlineObjects for image support)
  * @param config - Optional converter configuration
  * @returns The IR document
  */
 export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   const cfg = config || loadConfig();
   const body = doc?.body?.content || [];
+  const inlineObjects: InlineObjectsDict = doc?.inlineObjects || {};
   
   debug('docs-to-ir', 'input', body);
+  debug('docs-to-ir', 'inlineObjects-count', Object.keys(inlineObjects).length);
   
   const paragraphs: Paragraph[] = [];
   
   for (const element of body) {
-    const para = elementToParagraph(element, cfg);
+    const para = elementToParagraph(element, cfg, inlineObjects);
     if (para) {
       paragraphs.push(para);
     }
@@ -57,21 +70,24 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
 /**
  * Convert a document element to a Paragraph.
  */
-function elementToParagraph(element: any, config: ConverterConfig): Paragraph | null {
+function elementToParagraph(
+  element: any,
+  config: ConverterConfig,
+  inlineObjects: InlineObjectsDict
+): Paragraph | null {
   const p = element?.paragraph;
   if (!p?.elements?.length) return null;
   
   const paragraphStyle: DocsParagraphStyle = p.paragraphStyle || {};
-  const namedStyle = paragraphStyle.namedStyleType;
   
   // Determine paragraph type
   const { type, level } = determineParagraphType(paragraphStyle, config);
   
-  // Extract spans from text runs
+  // Extract spans from text runs and inline objects
   const spans: StyledSpan[] = [];
   
   for (const el of p.elements) {
-    const span = textRunToSpan(el, type === 'code_block', config);
+    const span = elementToSpan(el, type === 'code_block', config, inlineObjects);
     if (span) {
       spans.push(span);
     }
@@ -124,13 +140,20 @@ function determineParagraphType(
 }
 
 /**
- * Convert a Google Docs textRun to a StyledSpan.
+ * Convert a Google Docs element (textRun or inlineObjectElement) to a StyledSpan.
  */
-function textRunToSpan(
+function elementToSpan(
   element: any,
   isCodeBlock: boolean,
-  config: ConverterConfig
+  config: ConverterConfig,
+  inlineObjects: InlineObjectsDict
 ): StyledSpan | null {
+  // Handle inline image objects
+  if (element?.inlineObjectElement) {
+    return inlineObjectToSpan(element.inlineObjectElement, inlineObjects);
+  }
+  
+  // Handle text runs
   const textRun = element?.textRun;
   if (!textRun?.content) return null;
   
@@ -168,6 +191,47 @@ function textRunToSpan(
   if (textStyle.link?.url) span.link = textStyle.link.url;
   
   return span;
+}
+
+/**
+ * Convert an inline object element (image) to a StyledSpan.
+ * 
+ * If the image has a description that looks like Joplin markdown (![...](:/...)),
+ * we use that directly to preserve the image reference for roundtrip sync.
+ * Otherwise, we output a placeholder.
+ */
+function inlineObjectToSpan(
+  inlineObjectElement: any,
+  inlineObjects: InlineObjectsDict
+): StyledSpan | null {
+  const objectId = inlineObjectElement?.inlineObjectId;
+  if (!objectId) return null;
+  
+  // Look up the inline object in the dictionary
+  const inlineObject = inlineObjects[objectId];
+  if (!inlineObject) {
+    debug('docs-to-ir', 'missing-inline-object', objectId);
+    return { text: '[image]' };
+  }
+  
+  // Get the description (where we store the original Joplin markdown)
+  const embeddedObject = inlineObject?.inlineObjectProperties?.embeddedObject;
+  const description = embeddedObject?.description || '';
+  const title = embeddedObject?.title || '';
+  
+  // Check if description contains Joplin image reference
+  // Format: ![alt text](:/resourceId) or ![alt text](:/resourceId "title")
+  if (description && description.startsWith('![') && description.includes('](:/')) {
+    // Use the original Joplin markdown as-is
+    debug('docs-to-ir', 'image-roundtrip', { objectId, markdown: description });
+    return { text: description };
+  }
+  
+  // Fallback: use title if available, or generic placeholder
+  // This handles images that were added directly in Google Docs (not from Joplin)
+  const altText = title || 'image';
+  debug('docs-to-ir', 'image-external', { objectId, altText });
+  return { text: `[${altText}]` };
 }
 
 /**
