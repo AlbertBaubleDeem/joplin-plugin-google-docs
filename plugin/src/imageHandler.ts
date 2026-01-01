@@ -237,7 +237,13 @@ function getExtensionFromMime(mimeType: string): string {
 }
 
 /**
- * Generate a unique object name for GCS
+ * Generate a unique object name for GCS.
+ * 
+ * Format: joplin_img_{resourceId}.{ext}
+ * 
+ * The full resource ID is included so it can be extracted from sourceUri on pull,
+ * enabling image roundtrip without needing to set image description (which the
+ * Google Docs API doesn't support via batchUpdate).
  */
 function generateUniqueObjectName(resourceId: string, mimeType?: string, originalFilename?: string): string {
   // Prefer extension from MIME type, then from filename, then default to png
@@ -248,9 +254,28 @@ function generateUniqueObjectName(resourceId: string, mimeType?: string, origina
     ext = originalFilename.split('.').pop() || 'png';
   }
   
+  // Include full resource ID for extraction on pull
+  // Add timestamp to ensure uniqueness across multiple syncs
   const timestamp = Date.now();
-  const randomBytes = crypto.randomBytes(8).toString('hex');
-  return `joplin_${timestamp}_${randomBytes}_${resourceId.substring(0, 8)}.${ext}`;
+  return `joplin_img_${resourceId}_${timestamp}.${ext}`;
+}
+
+/**
+ * Extract Joplin resource ID from a GCS URL.
+ * 
+ * Expected format: https://storage.googleapis.com/{bucket}/joplin_img_{resourceId}_{timestamp}.{ext}
+ * Returns the resource ID or null if not a Joplin image.
+ */
+export function extractResourceIdFromGcsUrl(url: string): string | null {
+  if (!url) return null;
+  
+  // Match pattern: joplin_img_{resourceId}_{timestamp}.{ext}
+  const match = url.match(/joplin_img_([a-fA-F0-9]{32})_\d+\.\w+/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  
+  return null;
 }
 
 /**
@@ -571,13 +596,13 @@ export async function processImages(
 export interface ImageInsertRequestsResult {
   /** The Docs API requests for insertInlineImage */
   requests: any[];
-  /** Original markdown for each request (same order as requests) */
-  originalMarkdowns: string[];
 }
 
 /**
- * Build Docs API requests to insert images
- * Returns both the requests and the original markdown for each (to set as description later)
+ * Build Docs API requests to insert images at the correct positions.
+ * 
+ * Image roundtrip is achieved by embedding the Joplin resource ID in the GCS filename.
+ * On pull, we extract the resource ID from the image's sourceUri.
  */
 export function buildImageInsertRequests(
   imageRanges: ImageRange[],
@@ -587,7 +612,6 @@ export function buildImageInsertRequests(
 ): ImageInsertRequestsResult {
   const log = debugLog || (() => {});
   const requests: any[] = [];
-  const originalMarkdowns: string[] = [];
   
   log(`Building insert requests for ${imageRanges.length} images`);
   
@@ -616,58 +640,14 @@ export function buildImageInsertRequests(
       }
     });
     
-    // Track the original markdown for this image (to set as description)
-    originalMarkdowns.push(imageRange.originalMarkdown);
-    
     console.log(`[imageHandler] Insert at ${insertPosition}: ${publicUrl}`);
   }
   
   console.log(`[imageHandler] Built ${requests.length} insert requests`);
-  return { requests, originalMarkdowns };
+  return { requests };
 }
 
-/**
- * Build Docs API requests to update inline object descriptions
- * This sets the original Joplin markdown as the image description for roundtrip sync
- * 
- * @param objectIds - Object IDs from insertInlineImage responses (same order as requests)
- * @param originalMarkdowns - Original markdown for each image (same order as requests)
- */
-export function buildImageDescriptionRequests(
-  objectIds: string[],
-  originalMarkdowns: string[],
-  debugLog?: (msg: string) => void
-): any[] {
-  const log = debugLog || (() => {});
-  const requests: any[] = [];
-  
-  log(`Building description requests for ${objectIds.length} images`);
-  
-  for (let i = 0; i < objectIds.length; i++) {
-    const objectId = objectIds[i];
-    const markdown = originalMarkdowns[i];
-    
-    if (!objectId || !markdown) {
-      log(`  Skipping index ${i}: objectId=${objectId}, markdown=${markdown?.substring(0, 20)}`);
-      continue;
-    }
-    
-    log(`  Setting description for ${objectId}: ${markdown}`);
-    
-    requests.push({
-      updateInlineObjectProperties: {
-        objectId,
-        inlineObjectProperties: {
-          embeddedObject: {
-            description: markdown,
-          }
-        },
-        fields: 'embeddedObject.description',
-      }
-    });
-  }
-  
-  log(`Built ${requests.length} description requests`);
-  return requests;
-}
+// Note: Google Docs API doesn't support updateInlineObjectProperties via batchUpdate
+// Image roundtrip is achieved by embedding the resource ID in the GCS filename
+// and extracting it from sourceUri on pull.
 

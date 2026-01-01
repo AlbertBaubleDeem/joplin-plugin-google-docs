@@ -141,8 +141,6 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
   try {
     const tabsDoc = await docsClient.documents.get({ documentId, includeTabsContent: true });
     const tabs = Array.isArray(tabsDoc?.data?.tabs) ? tabsDoc.data.tabs : [];
-    // Get inlineObjects from the document (at document level, not tab level)
-    const inlineObjects = tabsDoc?.data?.inlineObjects || {};
     tabCount = tabs.length;
     if (tabCount > 0) {
       let picked: any = null;
@@ -155,6 +153,18 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
         : Array.isArray(picked?.body?.content) ? picked.body.content
         : Array.isArray(picked?.tab?.body?.content) ? picked.tab.body.content
         : [];
+      
+      // Get inlineObjects - check both tab level and document level
+      // When using includeTabsContent=true, inlineObjects may be in documentTab
+      const tabInlineObjects = picked?.documentTab?.inlineObjects 
+        || picked?.document?.inlineObjects 
+        || picked?.inlineObjects 
+        || {};
+      const docInlineObjects = tabsDoc?.data?.inlineObjects || {};
+      // Merge both (tab-level takes precedence)
+      const inlineObjects = { ...docInlineObjects, ...tabInlineObjects };
+      
+      
       usedTabTitle = picked?.tabProperties?.title || picked?.name || picked?.title || '';
       return { 
         convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects }, 
@@ -167,10 +177,11 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
   }
   // Fallback to classic document body
   const plain = await docsClient.documents.get({ documentId });
+  const inlineObjects = plain?.data?.inlineObjects || {};
   const convertDoc: DocLike = { 
     title: plain?.data?.title, 
     body: { content: plain?.data?.body?.content || [] },
-    inlineObjects: plain?.data?.inlineObjects || {},
+    inlineObjects,
   };
   return { convertDoc, tabCount, usedTabTitle };
 }

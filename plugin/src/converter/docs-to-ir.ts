@@ -194,11 +194,31 @@ function elementToSpan(
 }
 
 /**
+ * Extract Joplin resource ID from a GCS URL.
+ * 
+ * Expected format: https://storage.googleapis.com/{bucket}/joplin_img_{resourceId}_{timestamp}.{ext}
+ * Returns the resource ID or null if not a Joplin image.
+ */
+function extractResourceIdFromUrl(url: string): string | null {
+  if (!url) return null;
+  
+  // Match pattern: joplin_img_{resourceId}_{timestamp}.{ext}
+  // Resource ID is 32 hex characters
+  const match = url.match(/joplin_img_([a-fA-F0-9]{32})_\d+\.\w+/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  
+  return null;
+}
+
+/**
  * Convert an inline object element (image) to a StyledSpan.
  * 
- * If the image has a description that looks like Joplin markdown (![...](:/...)),
- * we use that directly to preserve the image reference for roundtrip sync.
- * Otherwise, we output a placeholder.
+ * Extracts the Joplin resource ID from the image's sourceUri (the GCS URL we uploaded)
+ * and reconstructs the markdown image reference.
+ * 
+ * For images not from Joplin (no matching sourceUri pattern), outputs a placeholder.
  */
 function inlineObjectToSpan(
   inlineObjectElement: any,
@@ -214,23 +234,31 @@ function inlineObjectToSpan(
     return { text: '[image]' };
   }
   
-  // Get the description (where we store the original Joplin markdown)
+  // Get the image properties
   const embeddedObject = inlineObject?.inlineObjectProperties?.embeddedObject;
-  const description = embeddedObject?.description || '';
+  const imageProps = embeddedObject?.imageProperties || {};
+  const sourceUri = imageProps?.sourceUri || '';
+  const contentUri = imageProps?.contentUri || '';
   const title = embeddedObject?.title || '';
+  const description = embeddedObject?.description || '';
   
-  // Check if description contains Joplin image reference
-  // Format: ![alt text](:/resourceId) or ![alt text](:/resourceId "title")
-  if (description && description.startsWith('![') && description.includes('](:/')) {
-    // Use the original Joplin markdown as-is
-    debug('docs-to-ir', 'image-roundtrip', { objectId, markdown: description });
-    return { text: description };
+  debug('docs-to-ir', 'inline-object', { objectId, sourceUri: sourceUri?.substring(0, 60), title });
+  
+  // Try to extract resource ID from sourceUri (the GCS URL we uploaded)
+  const resourceId = extractResourceIdFromUrl(sourceUri);
+  if (resourceId) {
+    // Found Joplin resource ID - reconstruct the markdown
+    // Use title as alt text if available, otherwise empty
+    const altText = title || description || '';
+    const markdown = altText ? `![${altText}](:/` + resourceId + ')' : `![](:/` + resourceId + ')';
+    debug('docs-to-ir', 'image-roundtrip', { objectId, resourceId, markdown });
+    return { text: markdown };
   }
   
   // Fallback: use title if available, or generic placeholder
   // This handles images that were added directly in Google Docs (not from Joplin)
   const altText = title || 'image';
-  debug('docs-to-ir', 'image-external', { objectId, altText });
+  debug('docs-to-ir', 'image-external', { objectId, altText, sourceUri: sourceUri?.substring(0, 40) });
   return { text: `[${altText}]` };
 }
 
