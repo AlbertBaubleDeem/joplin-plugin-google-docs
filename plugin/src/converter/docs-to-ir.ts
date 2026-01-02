@@ -100,30 +100,30 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
  * Check if a paragraph has all text runs in monospace font.
  * This indicates a native Google Docs code block (Building Block > Code block).
  * 
- * Logic: Returns true if at least one run has monospace font AND no runs have
- * explicit non-monospace fonts. Runs without explicit fonts are treated as
- * inherited (neutral) since Google Docs often omits font info for some tokens.
+ * Logic: Returns true ONLY if ALL runs with content have explicit monospace fonts.
+ * Runs with empty/missing font info are treated as non-monospace (default font).
+ * 
+ * This is safe because our Joplin code blocks are detected via shading/borderLeft
+ * BEFORE this function is called. This function is only a fallback for native
+ * GDoc code blocks that don't have those style properties.
  */
 function isAllMonospaceParagraph(elements: any[]): boolean {
   // Get text runs with actual content
   const textRuns = elements.filter(e => e.textRun?.content?.trim());
   if (textRuns.length === 0) return false;
   
-  let hasMonospace = false;
-  
   for (const e of textRuns) {
     const font = e.textRun?.textStyle?.weightedFontFamily?.fontFamily || '';
     
-    if (/mono|courier/i.test(font)) {
-      hasMonospace = true;
-    } else if (font) {
-      // Has explicit non-monospace font - definitely not a code block
+    // Every run must have an explicit monospace font
+    // Empty font = default font = not monospace
+    if (!/mono|courier/i.test(font)) {
       return false;
     }
-    // If font is empty string, treat as inherited (neutral) - continue checking
   }
   
-  return hasMonospace;
+  // All runs have explicit monospace font
+  return true;
 }
 
 /**
