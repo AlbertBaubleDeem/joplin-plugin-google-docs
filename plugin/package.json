@@ -7,7 +7,9 @@
     "build": "tsc -p .",
     "postbuild": "node scripts/postbuild.js",
     "dev": "tsc -w -p .",
-    "deploy:wsl": "bash scripts/deploy-wsl.sh \"${DEST:-}\""
+    "deploy:wsl": "bash scripts/deploy-wsl.sh \"${DEST:-}\"",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "joplin",
@@ -18,8 +20,11 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/marked": "^5.0.2",
     "@types/node": "^22.5.4",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.5.4"
   },
   "dependencies": {

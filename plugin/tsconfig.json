@@ -12,7 +12,7 @@
     "paths": {
       "api": ["types/api"]
     },
-    "types": ["node"],
+    "types": ["node", "jest"],
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
