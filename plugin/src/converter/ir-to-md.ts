@@ -21,13 +21,19 @@ function isImageOnlyParagraph(para: Paragraph): boolean {
 
 /**
  * Check if a paragraph is a list item.
- * List items start with "- " (unordered) or "N. " (ordered).
+ * List items start with:
+ * - "- " (markdown unordered)
+ * - "* " (markdown unordered)
+ * - "• " (bullet character U+2022)
+ * - "◦" (hollow bullet U+25E6)
+ * - "▪" (small black square U+25AA)
+ * - "N. " (ordered)
  */
 function isListItemParagraph(para: Paragraph): boolean {
   if (para.spans.length === 0) return false;
   const firstSpan = para.spans[0].text;
-  // Match "- " for unordered or "1. ", "2. " etc for ordered
-  return /^-\s/.test(firstSpan) || /^\d+\.\s/.test(firstSpan);
+  // Match various list markers
+  return /^[-*•◦▪]\s/.test(firstSpan) || /^\d+\.\s/.test(firstSpan);
 }
 
 /**

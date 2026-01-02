@@ -25,11 +25,29 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   const textRanges: TextRange[] = [];
   let plain = '';
   let cursor = 0;
+  let prevWasCodeBlock = false;
   
   for (const para of doc) {
+    const isCodeBlock = para.type === 'code_block';
+    
+    // Insert blank line between consecutive code blocks to prevent visual merging
+    if (isCodeBlock && prevWasCodeBlock) {
+      // Add empty paragraph (just a newline) as separator
+      paraRanges.push({
+        start: cursor,
+        end: cursor,
+        style: 'NORMAL_TEXT',
+      });
+      plain += '\n';
+      cursor += 1;
+    }
+    
     const { text, ranges } = paragraphToTextAndRanges(para, cursor);
     
-    if (text.length === 0) continue;
+    if (text.length === 0) {
+      prevWasCodeBlock = isCodeBlock;
+      continue;
+    }
     
     // Add paragraph range
     const paraEnd = cursor + text.length;
@@ -45,6 +63,7 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
     // Append to plain text with newline
     plain += text + '\n';
     cursor = paraEnd + 1;
+    prevWasCodeBlock = isCodeBlock;
   }
   
   const result = { plain, paraRanges, textRanges };
