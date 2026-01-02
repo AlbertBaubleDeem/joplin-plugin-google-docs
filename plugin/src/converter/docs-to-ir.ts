@@ -40,6 +40,32 @@ type DocsParagraphStyle = {
 type InlineObjectsDict = Record<string, any>;
 
 /**
+ * Merge consecutive code_block paragraphs into a single code block.
+ * This handles both our shaded code blocks and native GDoc all-monospace code blocks.
+ * Consecutive code blocks are merged; blocks separated by non-code paragraphs stay separate.
+ */
+function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
+  if (paragraphs.length === 0) return [];
+  
+  const result: Paragraph[] = [];
+  
+  for (const para of paragraphs) {
+    const last = result[result.length - 1];
+    
+    // If both current and previous are code blocks, merge them
+    if (last?.type === 'code_block' && para.type === 'code_block') {
+      // Add a newline span between the merged content
+      last.spans.push({ text: '\n' }, ...para.spans);
+      debug('docs-to-ir', 'merged-code-block', para.spans[0]?.text?.substring(0, 20));
+    } else {
+      result.push(para);
+    }
+  }
+  
+  return result;
+}
+
+/**
  * Convert a Google Docs document to IR.
  * 
  * @param doc - The document object from documents.get API (should include inlineObjects for image support)
@@ -63,8 +89,41 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
     }
   }
   
-  debug('docs-to-ir', 'result', paragraphs);
-  return paragraphs;
+  // Merge consecutive code blocks into single code blocks
+  const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs);
+  
+  debug('docs-to-ir', 'result', mergedParagraphs);
+  return mergedParagraphs;
+}
+
+/**
+ * Check if a paragraph has all text runs in monospace font.
+ * This indicates a native Google Docs code block (Building Block > Code block).
+ * 
+ * Logic: Returns true if at least one run has monospace font AND no runs have
+ * explicit non-monospace fonts. Runs without explicit fonts are treated as
+ * inherited (neutral) since Google Docs often omits font info for some tokens.
+ */
+function isAllMonospaceParagraph(elements: any[]): boolean {
+  // Get text runs with actual content
+  const textRuns = elements.filter(e => e.textRun?.content?.trim());
+  if (textRuns.length === 0) return false;
+  
+  let hasMonospace = false;
+  
+  for (const e of textRuns) {
+    const font = e.textRun?.textStyle?.weightedFontFamily?.fontFamily || '';
+    
+    if (/mono|courier/i.test(font)) {
+      hasMonospace = true;
+    } else if (font) {
+      // Has explicit non-monospace font - definitely not a code block
+      return false;
+    }
+    // If font is empty string, treat as inherited (neutral) - continue checking
+  }
+  
+  return hasMonospace;
 }
 
 /**
@@ -80,8 +139,15 @@ function elementToParagraph(
   
   const paragraphStyle: DocsParagraphStyle = p.paragraphStyle || {};
   
-  // Determine paragraph type
-  const { type, level } = determineParagraphType(paragraphStyle, config);
+  // Determine paragraph type from style
+  let { type, level } = determineParagraphType(paragraphStyle, config);
+  
+  // Check for native Google Docs code block (all-monospace paragraph)
+  // Override type to code_block if detected
+  if (type === 'paragraph' && isAllMonospaceParagraph(p.elements)) {
+    type = 'code_block';
+    debug('docs-to-ir', 'detected-native-code-block', p.elements[0]?.textRun?.content?.substring(0, 30));
+  }
   
   // Extract spans from text runs and inline objects
   const spans: StyledSpan[] = [];
@@ -96,6 +162,16 @@ function elementToParagraph(
   // Skip empty paragraphs
   if (spans.length === 0 || spans.every(s => s.text.trim() === '')) {
     return null;
+  }
+  
+  // Detect native Google Docs bullet lists
+  // Prepend bullet character to first span
+  const bullet = p.bullet;
+  if (bullet && spans.length > 0) {
+    // Use bullet character (•) for unordered lists - appears naturally in Joplin
+    // TODO: Could detect ordered lists by checking list properties
+    spans[0].text = '• ' + spans[0].text;
+    debug('docs-to-ir', 'detected-bullet-list', { listId: bullet.listId, text: spans[0].text.substring(0, 30) });
   }
   
   return { type, level, spans };
