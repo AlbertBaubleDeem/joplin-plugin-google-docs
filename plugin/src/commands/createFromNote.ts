@@ -2,11 +2,13 @@
  * createFromNote - Create a new Google Doc from a Joplin note
  * 
  * Uses GoogleDocsProvider for document operations.
+ * Creates the doc, binds it, and immediately pushes the note content.
  */
 
 import { bindNote, PLUGIN_ID } from '../mapping';
 import { createSyncContext } from '../services/SyncContext';
 import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
+import { pushNoteById } from './pushNote';
 
 /**
  * Parameters for createFromNote command
@@ -69,6 +71,9 @@ export async function createFromNote(params: Params): Promise<CreateResult> {
     version: '1',
   });
   bindNote(dataDir, noteId, { fileId: newFileId });
+
+  // Push note content to the newly created doc
+  await pushNoteById({ j, installDir, dataDir, noteId });
 
   return { noteId, newFileId, syncFolderId };
 }

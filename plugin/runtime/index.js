@@ -372,12 +372,13 @@ console.warn('[gdocs] root index executing');
             async function runPoller() {
               try {
                 console.log('[gdocs] Background sync running...');
+                const { createSyncContext } = require(path.resolve(installDir, 'dist/services/SyncContext.js'));
                 const { MinimalPoller } = require(path.resolve(installDir, 'dist/poller.js'));
-                const { getAuthFromInstallDir } = require(path.resolve(installDir, 'dist/services/auth.js'));
-                const { google, auth } = await getAuthFromInstallDir(installDir);
-                const poller = new MinimalPoller(dataDir);
-                await poller.initIfNeeded(auth);
-                const syncRes = await poller.syncOnce(auth, j, installDir, dataDir);
+                
+                const ctx = await createSyncContext(installDir, dataDir);
+                const poller = new MinimalPoller(ctx);
+                await poller.initIfNeeded();
+                const syncRes = await poller.syncOnce(j);
                 console.log('[gdocs] Background sync complete. Matched:', syncRes.matched, 'Updated:', syncRes.updated);
                 
                 // Show notification if there were updates
