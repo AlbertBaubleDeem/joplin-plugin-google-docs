@@ -30,6 +30,7 @@ export const SettingItemType = {
   Int: 1,
   String: 2,
   Bool: 3,
+  Button: 6,
 } as const;
 
 /**
@@ -108,11 +109,21 @@ export async function registerSettings(joplin: any): Promise<void> {
   await joplin.settings.registerSection(SETTINGS_SECTION, {
     label: 'Google Docs Sync',
     iconName: 'fas fa-cloud-upload-alt',
-    description: 'Configure Google Docs synchronization settings. For first-time setup, run "Google Docs Sync: Setup Wizard" from the Command Palette (Ctrl+Shift+P).',
+    description: 'Synchronize Joplin notes with Google Docs.',
   });
 
   // Register individual settings
   await joplin.settings.registerSettings({
+    // Getting Started - informational text at the top
+    ['gettingStarted']: {
+      value: 'New to Google Docs Sync? ⤵️',
+      type: SettingItemType.String,
+      section: SETTINGS_SECTION,
+      public: true,
+      label: '🚀 Getting Started',
+      description: 'Run "Google Docs Sync: 09 Setup Wizard" from the Command Palette (Ctrl+Shift+P) for guided setup.',
+    },
+
     // OAuth Client ID
     [SETTING_KEYS.CLIENT_ID]: {
       value: '',
@@ -134,6 +145,16 @@ export async function registerSettings(joplin: any): Promise<void> {
       description: 'Google Cloud OAuth Client Secret (stored securely)',
     },
 
+    // Enable/disable automatic sync
+    [SETTING_KEYS.AUTO_SYNC_ENABLED]: {
+      value: false,
+      type: SettingItemType.Bool,
+      section: SETTINGS_SECTION,
+      public: true,
+      label: 'Enable Automatic Sync',
+      description: 'Automatically sync changes in the background',
+    },
+
     // Polling interval in minutes
     [SETTING_KEYS.POLL_INTERVAL_MINUTES]: {
       value: 5,
@@ -145,16 +166,6 @@ export async function registerSettings(joplin: any): Promise<void> {
       minimum: 0,
       maximum: 60,
       step: 1,
-    },
-
-    // Enable/disable automatic sync
-    [SETTING_KEYS.AUTO_SYNC_ENABLED]: {
-      value: false,
-      type: SettingItemType.Bool,
-      section: SETTINGS_SECTION,
-      public: true,
-      label: 'Enable Automatic Sync',
-      description: 'Automatically sync changes in the background',
     },
 
     // Google Drive sync folder ID

@@ -289,24 +289,25 @@ console.warn('[gdocs] root index executing');
           console.warn('[gdocs] Failed to register settings:', e);
         }
         
-        // Commands ordered by usage frequency
-        // 1-2: Most common sync operations
-        await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: Push (update Doc)', execute: async () => { await pushNow(); } });
-        await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: Pull (update note)', execute: async () => { await pullNow(); } });
+        // Commands with numbered labels for alphabetical sorting in command palette
+        // 01-02: Most common sync operations
+        await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: 01 Push', execute: async () => { await pushNow(); } });
+        await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: 02 Pull', execute: async () => { await pullNow(); } });
+        await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: 03 Poll Once', execute: async () => { await pollOnce(); } });
         
-        // 3-5: Document creation and management
-        await j.commands.register({ name: 'gdocsCreateFromNote', label: 'Google Docs Sync: Create Doc from Note', execute: async () => { await createFromNoteCmd(); } });
-        await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
-        await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook to Drive Folder', execute: async () => { await exportNotebookCmd(); } });
+        // 04-06: Document creation and management
+        await j.commands.register({ name: 'gdocsCreateFromNote', label: 'Google Docs Sync: 04 Export Note into Doc', execute: async () => { await createFromNoteCmd(); } });
+        await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: 05 Export Notebook into Docs', execute: async () => { await exportNotebookCmd(); } });
+        await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: 06 Import Doc into Note', execute: async () => { await openPickerCmd(); } });
         
-        // 6-7: Manual binding (less common)
-        await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
-        await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
+        // 07-08: Manual binding (less common)
+        await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: 07 Unbind Note from Doc', execute: async () => { await unbindCurrentNote(); } });
+        await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: 08 Bind Note to Doc', execute: async () => { await bindCurrentNote(); } });
         
-        // 8: Setup Wizard
+        // 09: Setup Wizard
         await j.commands.register({
           name: 'gdocsSetupWizard',
-          label: 'Google Docs Sync: Setup Wizard',
+          label: 'Google Docs Sync: 09 Setup Wizard',
           execute: async () => {
             try {
               const path = require('path');
@@ -321,10 +322,10 @@ console.warn('[gdocs] root index executing');
           }
         });
         
-        // 9: Authorization (fallback, usually handled in settings)
+        // 10: Authorization (fallback)
         await j.commands.register({
           name: 'gdocsAuthorize',
-          label: 'Google Docs Sync: Authorize with Google',
+          label: 'Google Docs Sync: 10 Authorize',
           execute: async () => {
             try {
               const path = require('path');
@@ -344,9 +345,8 @@ console.warn('[gdocs] root index executing');
           }
         });
         
-        // 10-11: Debugging and manual sync
-        await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once', execute: async () => { await pollOnce(); } });
-        await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: Toggle Converter Debug', execute: async () => { await toggleConverterDebug(); } });
+        // 11: Debugging
+        await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: 11 Toggle Debug', execute: async () => { await toggleConverterDebug(); } });
         
         // Check if setup is needed on startup and show prompt
         try {
