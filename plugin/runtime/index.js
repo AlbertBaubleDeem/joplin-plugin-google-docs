@@ -129,33 +129,6 @@ console.warn('[gdocs] root index executing');
       }
     }
 
-    async function autoPairFolder() {
-      try {
-        const path = require('path');
-        const installDir = (await j.plugins.installationDir()) || '';
-        const dataDir = await j.plugins.dataDir();
-        const runPath = path.resolve(installDir, 'dist/commands/autoPairRun.js');
-        const { autoPairRun } = require(runPath);
-        const res = await autoPairRun({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox(`Auto Pair complete. folderId=${res.folderId} scanned=${res.scanned} created=${res.created} linked=${res.linkedExisting} ensured=${res.ensuredMapping}`);
-      } catch (e) {
-        await handleError(e, 'Auto Pair error');
-      }
-    }
-
-    async function migrateToAppDocCmd() {
-      try {
-        const path = require('path');
-        const installDir = (await j.plugins.installationDir()) || '';
-        const dataDir = await j.plugins.dataDir();
-        const mod = require(path.resolve(installDir, 'dist/commands/migrateToAppDoc.js'));
-        const res = await mod.migrateToAppDoc({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox('Migrated to App Doc. newFileId=' + res.newFileId + ' noteId=' + res.noteId);
-      } catch (e) {
-        await handleError(e, 'Migrate error');
-      }
-    }
-
     async function toggleConverterDebug() {
       const path = require('path');
       const fs = require('fs');
@@ -277,16 +250,12 @@ console.warn('[gdocs] root index executing');
           console.warn('[gdocs] Failed to register settings:', e);
         }
         
-        await j.commands.register({ name: 'gdocsHello', label: 'Google Docs Sync: Hello', execute: async () => { await j.views.dialogs.showMessageBox('Google Docs plugin is active.'); } });
-        console.log('[gdocs] Registered gdocsHello command');
         await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once', execute: async () => { await pollOnce(); } });
         await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
         await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: Pull (update note)', execute: async () => { await pullNow(); } });
         await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: Push (update Doc)', execute: async () => { await pushNow(); } });
         await j.commands.register({ name: 'gdocsCreateFromNote', label: 'Google Docs Sync: Create Doc from Note', execute: async () => { await createFromNoteCmd(); } });
-        await j.commands.register({ name: 'gdocsAutoPair', label: 'Google Docs Sync: Auto Pair Folder', execute: async () => { await autoPairFolder(); } });
-        await j.commands.register({ name: 'gdocsMigrateToAppDoc', label: 'Google Docs Sync: Migrate to App Doc', execute: async () => { await migrateToAppDocCmd(); } });
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
         await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook to Drive Folder', execute: async () => { await exportNotebookCmd(); } });
         await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: Toggle Converter Debug', execute: async () => { await toggleConverterDebug(); } });
@@ -310,49 +279,6 @@ console.warn('[gdocs] root index executing');
               }
             } catch (e) {
               await handleError(e, 'Authorization error');
-            }
-          }
-        });
-        
-        await j.commands.register({
-          name: 'gdocsReauthorize',
-          label: 'Google Docs Sync: Re-authorize (New Tokens)',
-          execute: async () => {
-            try {
-              const path = require('path');
-              const installDir = (await j.plugins.installationDir()) || '';
-              const dataDir = await j.plugins.dataDir();
-              const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
-              const { showSuccessDialog, showErrorDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
-              const result = await reauthorize({ j, installDir, dataDir });
-              if (result.success) {
-                await showSuccessDialog(j, 'Re-authorization Complete', result.message);
-              } else {
-                await showErrorDialog(j, 'Re-authorization Failed', result.message);
-              }
-            } catch (e) {
-              await handleError(e, 'Re-authorization error');
-            }
-          }
-        });
-        
-        await j.commands.register({
-          name: 'gdocsAuthStatus',
-          label: 'Google Docs Sync: Check Auth Status',
-          execute: async () => {
-            try {
-              const path = require('path');
-              const installDir = (await j.plugins.installationDir()) || '';
-              const { checkAuthStatus } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
-              const { showInfoDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
-              const status = await checkAuthStatus({ installDir });
-              await showInfoDialog(j, {
-                title: 'Authorization Status',
-                message: status.message,
-                icon: status.authorized ? '✅' : '❌',
-              });
-            } catch (e) {
-              await handleError(e, 'Status check error');
             }
           }
         });
