@@ -8,6 +8,7 @@ import { createSyncContext } from '../services/SyncContext';
 import { bindNote } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
 import { convertDocumentToMarkdown } from '../converter';
+import { createNote, determineTargetFolder } from '../services/NoteOperations';
 
 type Params = { j: any; installDir: string; dataDir: string };
 
@@ -178,6 +179,9 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     // Show progress dialog
     await j.views.dialogs.showMessageBox(`Importing ${fids.length} document${fids.length > 1 ? 's' : ''}...`);
     
+    // Determine target folder (current notebook or fallback)
+    const targetFolderId = await determineTargetFolder(j);
+    
     // Build inverse map fileId -> noteId from existing mapping
     const mapping = (await import('../mapping')).loadMapping(dataDir);
     const fileIdToNoteId: Record<string, string> = {};
@@ -205,7 +209,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
       try {
         const sel = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
         const md = convertDocumentToMarkdown((sel as any).convertDoc, { installDir });
-        const newNote = await j.data.post(['notes'], null, { title, body: md });
+        const newNote = await createNote(j, title, md, targetFolderId);
         bindNote(dataDir, newNote.id, { fileId: fid });
         
         try { 
