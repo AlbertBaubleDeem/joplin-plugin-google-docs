@@ -74,25 +74,64 @@ console.warn('[gdocs] root index executing');
       const dataDir = await j.plugins.dataDir();
       const bindDoerPath = path.resolve(installDir, 'dist/commands/bindNote.js');
       const { bindNoteDoer } = require(bindDoerPath);
+      const { showSuccessDialog, showErrorDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
+      
       const dId = 'gdocsBindDialog-' + Date.now();
       const d = await j.views.dialogs.create(dId);
       const html = `
-        <form name="f" style="min-width: 420px">
-          <p>Enter Google Drive fileId and optional tabId:</p>
-          <label>fileId:<br/><input name="fileId" style="width: 98%" /></label><br/>
-          <label>tabId (optional):<br/><input name="tabId" style="width: 98%" /></label>
-        </form>
+        <style>#joplin-plugin-content { width: max-content; }</style>
+        <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
+          <div style="text-align: center; margin-bottom: 16px;">
+            <span style="font-size: 36px;">🔗</span>
+          </div>
+          <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
+            Bind Note to Google Doc
+          </h2>
+          <form name="f">
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; margin-bottom: 4px; font-weight: 500; color: var(--joplin-color);">
+                File ID (required)
+              </label>
+              <input 
+                type="text" 
+                name="fileId" 
+                placeholder="Google Drive file ID"
+                style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color); box-sizing: border-box;"
+              />
+            </div>
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; margin-bottom: 4px; font-weight: 500; color: var(--joplin-color);">
+                Tab ID (optional)
+              </label>
+              <input 
+                type="text" 
+                name="tabId" 
+                placeholder="For multi-tab documents"
+                style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color); box-sizing: border-box;"
+              />
+            </div>
+          </form>
+          <p style="font-size: 12px; color: var(--joplin-color); margin-top: 12px; opacity: 0.7;">
+            Get the File ID from the Google Docs URL: docs.google.com/document/d/<strong>FILE_ID</strong>/edit
+          </p>
+        </div>
       `;
       await j.views.dialogs.setHtml(d, html);
-      await j.views.dialogs.setButtons(d, [{ id: 'ok' }, { id: 'cancel' }]);
+      await j.views.dialogs.setButtons(d, [
+        { id: 'cancel', title: 'Cancel' },
+        { id: 'ok', title: 'Bind' },
+      ]);
       const r = await j.views.dialogs.open(d);
       if (!r || r.id !== 'ok') return;
       const fd = (r.formData && (r.formData.f || r.formData)) || {};
       const fileId = fd.fileId ? String(fd.fileId).trim() : '';
       const tabId = fd.tabId ? String(fd.tabId).trim() : '';
-      if (!fileId) { await j.views.dialogs.showMessageBox('fileId is required.'); return; }
+      if (!fileId) {
+        await showErrorDialog(j, 'Missing File ID', 'Please enter a Google Drive file ID.');
+        return;
+      }
       bindNoteDoer(dataDir, noteId, fileId, tabId || undefined);
-      await j.views.dialogs.showMessageBox('Bound note to fileId: ' + fileId + (tabId ? (' tabId: ' + tabId) : ''));
+      await showSuccessDialog(j, 'Note Bound', 'Note bound to file ID: ' + fileId + (tabId ? (' (tab: ' + tabId + ')') : ''));
     }
 
     async function unbindCurrentNote() {
@@ -250,17 +289,39 @@ console.warn('[gdocs] root index executing');
           console.warn('[gdocs] Failed to register settings:', e);
         }
         
-        await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once', execute: async () => { await pollOnce(); } });
-        await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
-        await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
-        await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: Pull (update note)', execute: async () => { await pullNow(); } });
+        // Commands ordered by usage frequency
+        // 1-2: Most common sync operations
         await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: Push (update Doc)', execute: async () => { await pushNow(); } });
+        await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: Pull (update note)', execute: async () => { await pullNow(); } });
+        
+        // 3-5: Document creation and management
         await j.commands.register({ name: 'gdocsCreateFromNote', label: 'Google Docs Sync: Create Doc from Note', execute: async () => { await createFromNoteCmd(); } });
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: Import/Bind (Dialog)', execute: async () => { await openPickerCmd(); } });
         await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: Export Notebook to Drive Folder', execute: async () => { await exportNotebookCmd(); } });
-        await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: Toggle Converter Debug', execute: async () => { await toggleConverterDebug(); } });
         
-        // Authorization commands
+        // 6-7: Manual binding (less common)
+        await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: Bind note to Drive fileId', execute: async () => { await bindCurrentNote(); } });
+        await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: Unbind note', execute: async () => { await unbindCurrentNote(); } });
+        
+        // 8: Setup Wizard
+        await j.commands.register({
+          name: 'gdocsSetupWizard',
+          label: 'Google Docs Sync: Setup Wizard',
+          execute: async () => {
+            try {
+              const path = require('path');
+              const installDir = (await j.plugins.installationDir()) || '';
+              const dataDir = await j.plugins.dataDir();
+              const { runSetupWizard } = require(path.resolve(installDir, 'dist/commands/setupWizard.js'));
+              const result = await runSetupWizard({ j, installDir, dataDir });
+              // Setup wizard shows its own completion dialog, no need to show another
+            } catch (e) {
+              await handleError(e, 'Setup wizard error');
+            }
+          }
+        });
+        
+        // 9: Authorization (fallback, usually handled in settings)
         await j.commands.register({
           name: 'gdocsAuthorize',
           label: 'Google Docs Sync: Authorize with Google',
@@ -283,23 +344,9 @@ console.warn('[gdocs] root index executing');
           }
         });
         
-        // Setup Wizard command
-        await j.commands.register({
-          name: 'gdocsSetupWizard',
-          label: 'Google Docs Sync: Setup Wizard',
-          execute: async () => {
-            try {
-              const path = require('path');
-              const installDir = (await j.plugins.installationDir()) || '';
-              const dataDir = await j.plugins.dataDir();
-              const { runSetupWizard } = require(path.resolve(installDir, 'dist/commands/setupWizard.js'));
-              const result = await runSetupWizard({ j, installDir, dataDir });
-              // Setup wizard shows its own completion dialog, no need to show another
-            } catch (e) {
-              await handleError(e, 'Setup wizard error');
-            }
-          }
-        });
+        // 10-11: Debugging and manual sync
+        await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: Poll Once', execute: async () => { await pollOnce(); } });
+        await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: Toggle Converter Debug', execute: async () => { await toggleConverterDebug(); } });
         
         // Check if setup is needed on startup and show prompt
         try {

@@ -108,7 +108,7 @@ export async function registerSettings(joplin: any): Promise<void> {
   await joplin.settings.registerSection(SETTINGS_SECTION, {
     label: 'Google Docs Sync',
     iconName: 'fas fa-cloud-upload-alt',
-    description: 'Configure Google Docs synchronization settings',
+    description: 'Configure Google Docs synchronization settings. For first-time setup, run "Google Docs Sync: Setup Wizard" from the Command Palette (Ctrl+Shift+P).',
   });
 
   // Register individual settings
