@@ -54,6 +54,9 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
 
 /**
  * Convert a paragraph to text and inline style ranges.
+ * 
+ * For code blocks, newlines are converted to vertical tabs (\u000B)
+ * which creates soft line breaks within the same paragraph in Google Docs.
  */
 function paragraphToTextAndRanges(
   para: Paragraph,
@@ -61,12 +64,21 @@ function paragraphToTextAndRanges(
 ): { text: string; ranges: TextRange[] } {
   let text = '';
   const ranges: TextRange[] = [];
+  const isCodeBlock = para.type === 'code_block';
   
   for (const span of para.spans) {
     const spanStart = startOffset + text.length;
-    const spanEnd = spanStart + span.text.length;
     
-    text += span.text;
+    // For code blocks, replace newlines with vertical tabs (soft line breaks)
+    // This keeps all code lines in a single Google Docs paragraph
+    let spanText = span.text;
+    if (isCodeBlock) {
+      spanText = spanText.replace(/\n/g, '\u000B');
+    }
+    
+    const spanEnd = spanStart + spanText.length;
+    
+    text += spanText;
     
     // Create text range if span has any styling
     if (span.bold || span.italic || span.code || span.link) {
