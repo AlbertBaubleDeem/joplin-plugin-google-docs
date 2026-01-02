@@ -231,7 +231,7 @@ function inlineObjectToSpan(
   const inlineObject = inlineObjects[objectId];
   if (!inlineObject) {
     debug('docs-to-ir', 'missing-inline-object', objectId);
-    return { text: '[image]' };
+    return { text: '[GDoc image]' };
   }
   
   // Get the image properties
@@ -255,9 +255,9 @@ function inlineObjectToSpan(
     return { text: markdown };
   }
   
-  // Fallback: use title if available, or generic placeholder
-  // This handles images that were added directly in Google Docs (not from Joplin)
-  const altText = title || 'image';
+  // Fallback: images added directly in Google Docs (not from Joplin)
+  // These can't be displayed in Joplin since GDoc images require authentication
+  const altText = title ? `GDoc image: ${title}` : 'GDoc image';
   debug('docs-to-ir', 'image-external', { objectId, altText, sourceUri: sourceUri?.substring(0, 40) });
   return { text: `[${altText}]` };
 }

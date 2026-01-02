@@ -285,9 +285,17 @@ function applyTitleRules(paragraphs: Paragraph[], config: ConverterConfig): void
   if (paragraphs.length === 0) return;
   
   // First paragraph becomes title if configured
+  // But not if it's a code block or image-only paragraph (these should stay as-is)
   if (config.title?.useTitle) {
-    paragraphs[0].type = 'title';
-    paragraphs[0].level = undefined;
+    const first = paragraphs[0];
+    const isCodeBlock = first.type === 'code_block';
+    const isImageOnly = first.spans.length === 1 && 
+      /^!\[.*?\]\(.*?\)$/.test(first.spans[0].text.trim());
+    
+    if (!isCodeBlock && !isImageOnly) {
+      paragraphs[0].type = 'title';
+      paragraphs[0].level = undefined;
+    }
   }
   
   // Detect subtitle (first italic paragraph after title)
