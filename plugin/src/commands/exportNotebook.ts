@@ -7,7 +7,7 @@
 import { loadMapping, saveMapping, bindNote, PLUGIN_ID } from '../mapping';
 import { createSyncContext } from '../services/SyncContext';
 import { getSelectedFolder, getFolderById, getNotesInFolder } from '../services/NoteOperations';
-import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converter';
+import { pushNoteById } from './pushNote';
 
 const APP_PROPERTY_NOTE_ID = 'joplinNoteId';
 const APP_PROPERTY_NOTEBOOK_ID = 'joplinNotebookId';
@@ -125,8 +125,6 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
   // Create individual Google Docs for each note
   console.log('[exportNotebook] Creating individual documents for each note in the notebook');
 
-  const converterOpts = { installDir };
-
   // Create a document for each unbound note
   for (let i = 0; i < unboundNotes.length; i++) {
     const note = unboundNotes[i];
@@ -138,21 +136,6 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
       notebookFolderId
     );
     const docId = createResult.metadata.id;
-
-    // Convert note content to Google Docs format
-    const { plain, paraRanges, textRanges } = convertMarkdownToPlainAndStyles(
-      note.body || '',
-      converterOpts
-    );
-
-    // Update document with content via provider
-    await ctx.provider.updateDocument(docId, { plainText: plain });
-
-    // Apply formatting via provider
-    const formatRequests = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
-    if (formatRequests.length > 0) {
-      await ctx.provider.applyFormattingRequests(docId, formatRequests);
-    }
 
     // Set app properties for binding via provider
     await ctx.provider.updateAppProperties(docId, {
@@ -167,6 +150,10 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
       lastSyncTs: Date.now(),
     });
     console.log(`[exportNotebook] Bound note ${note.id} to doc ${docId}`);
+
+    // Push full note content including images using the universal push command
+    await pushNoteById({ j, installDir, dataDir, noteId: note.id });
+    console.log(`[exportNotebook] Pushed content for note ${note.id}`);
   }
 
   // Set notebook folder app properties
