@@ -100,30 +100,53 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
  * Check if a paragraph has all text runs in monospace font.
  * This indicates a native Google Docs code block (Building Block > Code block).
  * 
- * Logic: Returns true ONLY if ALL runs with content have explicit monospace fonts.
- * Runs with empty/missing font info are treated as non-monospace (default font).
+ * Logic:
+ * - Runs with actual words (non-whitespace) MUST have explicit monospace font
+ * - Runs with only whitespace (spaces between words) can have EMPTY font
+ * - If any run with words has EMPTY or non-monospace font, it's not a code block
  * 
- * This is safe because our Joplin code blocks are detected via shading/borderLeft
- * BEFORE this function is called. This function is only a fallback for native
- * GDoc code blocks that don't have those style properties.
+ * This distinguishes:
+ * - Inline code + text: "normal text " (EMPTY, has words) + "code" (mono) → NOT code block
+ * - Native GDoc code block: "code" (mono) + " " (EMPTY, whitespace) + "more" (mono) → IS code block
+ */
+/**
+ * Check if a paragraph has all text runs in monospace font.
+ * This indicates a native Google Docs code block (Building Block > Code block).
+ * 
+ * Logic:
+ * - Filter to runs with visible content (excluding PUA markers and whitespace)
+ * - All visible runs must have explicit monospace font
+ * - Google Docs uses Private Use Area characters (U+E000-U+F8FF) as internal
+ *   markers for native code blocks - these are filtered out
  */
 function isAllMonospaceParagraph(elements: any[]): boolean {
-  // Get text runs with actual content
-  const textRuns = elements.filter(e => e.textRun?.content?.trim());
+  // Get text runs with VISIBLE content only
+  // Filter out: empty, whitespace-only, and Private Use Area characters
+  const textRuns = elements.filter(e => {
+    const content = e.textRun?.content;
+    if (!content) return false;
+    // Remove PUA characters and whitespace, check if anything visible remains
+    const visibleContent = content.replace(/[\uE000-\uF8FF\s]/g, '');
+    return visibleContent.length > 0;
+  });
+  
   if (textRuns.length === 0) return false;
+  
+  let hasMonospace = false;
   
   for (const e of textRuns) {
     const font = e.textRun?.textStyle?.weightedFontFamily?.fontFamily || '';
+    const isMonospace = /mono|courier/i.test(font);
     
-    // Every run must have an explicit monospace font
-    // Empty font = default font = not monospace
-    if (!/mono|courier/i.test(font)) {
+    if (isMonospace) {
+      hasMonospace = true;
+    } else {
+      // Visible content without monospace font - not a code block
       return false;
     }
   }
   
-  // All runs have explicit monospace font
-  return true;
+  return hasMonospace;
 }
 
 /**
