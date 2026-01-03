@@ -4,7 +4,7 @@ import {
   saveMapping,
   getBinding,
 } from '../mapping';
-import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converter';
+import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converters';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
 import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
 import { getGCSBucketName } from '../services/settings';

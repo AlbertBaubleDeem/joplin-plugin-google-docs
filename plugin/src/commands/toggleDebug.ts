@@ -4,7 +4,7 @@
  */
 
 import * as fs from 'fs';
-import { setDebugMode, getDebugLogPath } from '../converter';
+import { setDebugMode, getDebugLogPath } from '../converters';
 
 type JoplinApi = any;
 

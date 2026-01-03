@@ -23,7 +23,7 @@
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import { ImageRange } from './converter/types';
+import { ImageRange } from './converters/types';
 
 /**
  * Convert image to PNG using browser/Electron Canvas API

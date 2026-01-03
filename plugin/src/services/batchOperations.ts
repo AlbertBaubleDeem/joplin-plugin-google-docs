@@ -8,7 +8,7 @@ import { getBinding } from '../mapping';
 import { unbindNoteDoer } from '../commands/unbindNote';
 import { pushNote } from '../commands/pushNote';
 import { pullNote } from '../commands/pullNote';
-import { setDebugMode } from '../converter';
+import { setDebugMode } from '../converters';
 import {
   showSuccessDialog,
   showWarningDialog,

@@ -6,7 +6,7 @@
 
 import { loadMapping, saveMapping } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
-import { convertDocumentToMarkdown } from '../converter';
+import { convertDocumentToMarkdown } from '../converters';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
 import { getSelectedNoteId, updateNoteBody } from '../services/NoteOperations';
 

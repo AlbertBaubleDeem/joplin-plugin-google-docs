@@ -7,7 +7,7 @@
 import { createSyncContext } from '../services/SyncContext';
 import { bindNote } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
-import { convertDocumentToMarkdown } from '../converter';
+import { convertDocumentToMarkdown } from '../converters';
 import { createNote, determineTargetFolder } from '../services/NoteOperations';
 import { showWarningDialog, showSuccessDialog } from '../services/styledDialogs';
 
