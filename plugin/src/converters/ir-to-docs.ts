@@ -172,7 +172,7 @@ function buildParagraphStyleRequest(range: ParaRange, monoFont: string): any {
   const endIndex = range.end + 1;
   
   if (range.style === 'CODEBLOCK') {
-    // Code blocks get special styling (shading + border)
+    // Code blocks get special styling (shading + border + spacing)
     return {
       updateParagraphStyle: {
         range: { startIndex, endIndex },
@@ -188,8 +188,9 @@ function buildParagraphStyleRequest(range: ParaRange, monoFont: string): any {
             color: { color: { rgbColor: { red: 0.8, green: 0.8, blue: 0.8 } } },
             dashStyle: 'SOLID',
           },
+          spaceBelow: { magnitude: 12, unit: 'PT' },
         },
-        fields: 'shading,borderLeft',
+        fields: 'shading,borderLeft,spaceBelow',
       },
     };
   }
