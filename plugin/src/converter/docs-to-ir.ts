@@ -41,8 +41,11 @@ type InlineObjectsDict = Record<string, any>;
 
 /**
  * Merge consecutive code_block paragraphs into a single code block.
- * This handles both our shaded code blocks and native GDoc all-monospace code blocks.
- * Consecutive code blocks are merged; blocks separated by non-code paragraphs stay separate.
+ * This handles native GDoc all-monospace code blocks (Building Block > Code block).
+ * 
+ * Important: Only merge code blocks that are DIRECTLY adjacent.
+ * Code blocks separated by ANY other paragraph (including empty separators) stay separate.
+ * This preserves intentional separation between distinct code blocks.
  */
 function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
   if (paragraphs.length === 0) return [];
@@ -52,8 +55,9 @@ function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
   for (const para of paragraphs) {
     const last = result[result.length - 1];
     
-    // If both current and previous are code blocks, merge them
-    if (last?.type === 'code_block' && para.type === 'code_block') {
+    // If both current and previous are code blocks, AND the current one has NO separator flag, merge them
+    // Code blocks with _hasPrecedingSeparator should NOT be merged with the previous
+    if (last?.type === 'code_block' && para.type === 'code_block' && !(para as any)._hasPrecedingSeparator) {
       // Add a newline span between the merged content
       last.spans.push({ text: '\n' }, ...para.spans);
       debug('docs-to-ir', 'merged-code-block', para.spans[0]?.text?.substring(0, 20));
@@ -81,15 +85,29 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   debug('docs-to-ir', 'inlineObjects-count', Object.keys(inlineObjects).length);
   
   const paragraphs: Paragraph[] = [];
+  let lastWasEmpty = false;
   
   for (const element of body) {
-    const para = elementToParagraph(element, cfg, inlineObjects);
-    if (para) {
-      paragraphs.push(para);
+    const result = elementToParagraph(element, cfg, inlineObjects);
+    
+    if (result === null) {
+      // Empty paragraph - mark that the next paragraph has a separator before it
+      lastWasEmpty = true;
+      continue;
     }
+    
+    // If there was an empty paragraph before this one, flag it
+    // This prevents merging code blocks that are intentionally separated
+    if (lastWasEmpty) {
+      (result as any)._hasPrecedingSeparator = true;
+      lastWasEmpty = false;
+    }
+    
+    paragraphs.push(result);
   }
   
   // Merge consecutive code blocks into single code blocks
+  // (respects _hasPrecedingSeparator flag to keep separated blocks apart)
   const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs);
   
   debug('docs-to-ir', 'result', mergedParagraphs);
