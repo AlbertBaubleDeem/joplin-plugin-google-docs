@@ -20,6 +20,23 @@ function isImageOnlyParagraph(para: Paragraph): boolean {
 }
 
 /**
+ * Check if a paragraph is a list item.
+ * List items start with:
+ * - "- " (markdown unordered)
+ * - "* " (markdown unordered)
+ * - "• " (bullet character U+2022)
+ * - "◦" (hollow bullet U+25E6)
+ * - "▪" (small black square U+25AA)
+ * - "N. " (ordered)
+ */
+function isListItemParagraph(para: Paragraph): boolean {
+  if (para.spans.length === 0) return false;
+  const firstSpan = para.spans[0].text;
+  // Match various list markers
+  return /^[-*•◦▪]\s/.test(firstSpan) || /^\d+\.\s/.test(firstSpan);
+}
+
+/**
  * Check if a paragraph is self-delimiting and doesn't need extra blank lines.
  * 
  * - Code blocks: Triple backticks are self-delimiting
@@ -27,6 +44,41 @@ function isImageOnlyParagraph(para: Paragraph): boolean {
  */
 function isSelfDelimitingParagraph(para: Paragraph): boolean {
   return para.type === 'code_block' || isImageOnlyParagraph(para);
+}
+
+/**
+ * Determine the newline delimiter between two paragraphs.
+ * 
+ * Rules:
+ * - List → List: single newline (consecutive list items)
+ * - Self-delimiting → Self-delimiting: single newline
+ * - Self-delimiting → Text: double newline
+ * - Text → Self-delimiting: single newline
+ * - Text → Text: double newline
+ * - Text → List: double newline (list needs blank line before)
+ * - List → Text: double newline
+ */
+function getDelimiter(prev: Paragraph, current: Paragraph): string {
+  const prevIsListItem = isListItemParagraph(prev);
+  const currIsListItem = isListItemParagraph(current);
+  const prevIsSelfDelim = isSelfDelimitingParagraph(prev);
+  const currIsSelfDelim = isSelfDelimitingParagraph(current);
+  
+  // Consecutive list items: single newline
+  if (prevIsListItem && currIsListItem) {
+    return '\n';
+  }
+  
+  // Self-delimiting elements
+  if (currIsSelfDelim) {
+    return '\n';
+  }
+  if (prevIsSelfDelim) {
+    return '\n\n';
+  }
+  
+  // Everything else: double newline
+  return '\n\n';
 }
 
 /**
@@ -41,47 +93,27 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
   
   debug('ir-to-md', 'input', doc);
   
-  // Convert paragraphs and track which are self-delimiting
-  const converted: { text: string; isSelfDelimiting: boolean }[] = [];
+  // Convert paragraphs and keep reference to original for delimiter logic
+  const converted: { text: string; para: Paragraph }[] = [];
   
   for (const para of doc) {
     const line = paragraphToMarkdown(para, cfg);
     if (line !== null) {
-      converted.push({
-        text: line,
-        isSelfDelimiting: isSelfDelimitingParagraph(para),
-      });
+      converted.push({ text: line, para });
     }
   }
   
-  // Join paragraphs with appropriate spacing
-  // 
-  // Self-delimiting elements (code blocks, images) don't need blank lines BEFORE them
-  // since they are visually distinct. But regular paragraphs following them still
-  // need a blank line to be proper markdown paragraphs.
-  //
-  // Rules:
-  // - Text → Self-delimiting: single newline (no blank line needed before code/image)
-  // - Self-delimiting → Self-delimiting: single newline
-  // - Self-delimiting → Text: double newline (text needs to be new paragraph)
-  // - Text → Text: double newline (standard paragraph separation)
-  //
+  // Join paragraphs with appropriate spacing using getDelimiter
   const parts: string[] = [];
   for (let i = 0; i < converted.length; i++) {
     const current = converted[i];
-    const prev = i > 0 ? converted[i - 1] : null;
     
     if (i === 0) {
       parts.push(current.text);
-    } else if (current.isSelfDelimiting) {
-      // Self-delimiting elements don't need blank line before them
-      parts.push('\n' + current.text);
-    } else if (prev?.isSelfDelimiting) {
-      // Regular paragraph after self-delimiting: needs blank line to be new paragraph
-      parts.push('\n\n' + current.text);
     } else {
-      // Regular paragraph after regular paragraph: standard blank line
-      parts.push('\n\n' + current.text);
+      const prev = converted[i - 1];
+      const delimiter = getDelimiter(prev.para, current.para);
+      parts.push(delimiter + current.text);
     }
   }
   
@@ -195,4 +227,3 @@ export function normalizeMarkdown(md: string): string {
     // Trim
     .trim();
 }
-

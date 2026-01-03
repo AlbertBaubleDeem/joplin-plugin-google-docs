@@ -28,10 +28,12 @@ function loadJson<T>(filePath: string, fallback: T): T {
   }
 }
 
+/**
+ * Resolve the path to the mapping.json file.
+ * Uses a flat path in the data directory.
+ */
 export function resolveMappingPath(baseDir: string): string {
-  const harness = path.resolve(baseDir, 'google-api-tests/mapping.json');
-  const flat = path.resolve(baseDir, 'mapping.json');
-  return fs.existsSync(harness) ? harness : flat;
+  return path.resolve(baseDir, 'mapping.json');
 }
 
 export function loadMapping(baseDir: string): Mapping {

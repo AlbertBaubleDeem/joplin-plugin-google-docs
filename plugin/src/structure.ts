@@ -6,6 +6,8 @@ export type DocLike = {
   title?: string; // Google Doc file name (Docs API documents.get returns .title)
   body?: { content?: any[] };
   documentId?: string;
+  /** Inline objects dictionary for image support (from documents.get) */
+  inlineObjects?: Record<string, any>;
 };
 
 export type TabInfo = { tabId: string; name?: string; index: number };
@@ -132,6 +134,7 @@ export type TabSelectionResult = {
 // pick the desired tab (by tabId when provided, otherwise the first tab), and
 // return a normalized DocLike with body.content pointing to that tab's content.
 // Falls back to a plain fetch when tabs are not available.
+// Always includes inlineObjects for image roundtrip support.
 export async function buildConversionDocFromTabs(docsClient: any, documentId: string, opts?: { tabId?: string }): Promise<TabSelectionResult> {
   let tabCount = 0;
   let usedTabTitle = '';
@@ -150,15 +153,36 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
         : Array.isArray(picked?.body?.content) ? picked.body.content
         : Array.isArray(picked?.tab?.body?.content) ? picked.tab.body.content
         : [];
+      
+      // Get inlineObjects - check both tab level and document level
+      // When using includeTabsContent=true, inlineObjects may be in documentTab
+      const tabInlineObjects = picked?.documentTab?.inlineObjects 
+        || picked?.document?.inlineObjects 
+        || picked?.inlineObjects 
+        || {};
+      const docInlineObjects = tabsDoc?.data?.inlineObjects || {};
+      // Merge both (tab-level takes precedence)
+      const inlineObjects = { ...docInlineObjects, ...tabInlineObjects };
+      
+      
       usedTabTitle = picked?.tabProperties?.title || picked?.name || picked?.title || '';
-      return { convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr } }, tabCount, usedTabTitle };
+      return { 
+        convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects }, 
+        tabCount, 
+        usedTabTitle 
+      };
     }
   } catch (_) {
     // ignore and fallback
   }
   // Fallback to classic document body
   const plain = await docsClient.documents.get({ documentId });
-  const convertDoc: DocLike = { title: plain?.data?.title, body: { content: plain?.data?.body?.content || [] } };
+  const inlineObjects = plain?.data?.inlineObjects || {};
+  const convertDoc: DocLike = { 
+    title: plain?.data?.title, 
+    body: { content: plain?.data?.body?.content || [] },
+    inlineObjects,
+  };
   return { convertDoc, tabCount, usedTabTitle };
 }
 

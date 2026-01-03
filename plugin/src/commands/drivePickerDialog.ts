@@ -1,14 +1,24 @@
-import { getAuthFromInstallDir } from '../services/auth';
-import { bindNote, setDriveAppProperties, type DriveLike } from '../mapping';
+/**
+ * drivePickerDialog - Open a dialog to pick and import Google Docs
+ * 
+ * Uses SyncContext for authenticated API access.
+ */
+
+import { createSyncContext } from '../services/SyncContext';
+import { bindNote } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
-import { convertDocumentToMarkdown } from '../converter';
+import { convertDocumentToMarkdown } from '../converters';
+import { createNote, determineTargetFolder } from '../services/NoteOperations';
+import { showWarningDialog, showSuccessDialog } from '../services/styledDialogs';
 
 type Params = { j: any; installDir: string; dataDir: string };
 
 export async function openDrivePickerDialog(params: Params): Promise<{ selected: string[]; created: number; bound: number }>{
   const { j, installDir, dataDir } = params;
-  const { google, auth } = await getAuthFromInstallDir(installDir);
-  const drive = google.drive({ version: 'v3', auth });
+  
+  // Use SyncContext for authenticated API access
+  const ctx = await createSyncContext(installDir, dataDir);
+  const { drive } = ctx;
 
   async function listDocs(query: string): Promise<Array<{ id?: string; name?: string; modifiedTime?: string }>> {
     const esc = (query || '').replace(/'/g, "\\'");
@@ -154,7 +164,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     // Handle import button
     if (r.id === 'import') {
       if (selectedIds.length === 0) {
-        await j.views.dialogs.showMessageBox('Please select at least one document to import.');
+        await showWarningDialog(j, 'No Selection', 'Please select at least one document to import.');
         continue;
       }
       break; // Exit loop to proceed with import
@@ -167,8 +177,8 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
   let bound = 0;
   
   if (fids.length) {
-    // Show progress dialog
-    await j.views.dialogs.showMessageBox(`Importing ${fids.length} document${fids.length > 1 ? 's' : ''}...`);
+    // Determine target folder (current notebook or fallback)
+    const targetFolderId = await determineTargetFolder(j);
     
     // Build inverse map fileId -> noteId from existing mapping
     const mapping = (await import('../mapping')).loadMapping(dataDir);
@@ -195,14 +205,13 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
       const title = (meta?.name && String(meta.name)) || 'Imported Document';
       
       try {
-        const docs = google.docs({ version: 'v1', auth });
-        const sel = await buildConversionDocFromTabs(docs, fid, { tabId: undefined });
+        const sel = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
         const md = convertDocumentToMarkdown((sel as any).convertDoc, { installDir });
-        const newNote = await j.data.post(['notes'], null, { title, body: md });
+        const newNote = await createNote(j, title, md, targetFolderId);
         bindNote(dataDir, newNote.id, { fileId: fid });
         
         try { 
-          await setDriveAppProperties(drive as unknown as DriveLike, fid, { joplinNoteId: newNote.id }); 
+          await ctx.provider.updateAppProperties(fid, { joplinNoteId: newNote.id }); 
         } catch (_) {
           // Ignore appProperties errors (likely due to permissions)
         }
@@ -217,18 +226,12 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     }
     
     // Show summary
-    let summary = '';
-    if (imported.length > 0) {
-      summary += `✓ Successfully imported ${imported.length} document${imported.length > 1 ? 's' : ''}:\n`;
-      summary += imported.map(t => `  • ${t}`).join('\n');
-    }
+    const msg = `Imported: ${imported.length} | Skipped: ${skipped.length}`;
     if (skipped.length > 0) {
-      if (summary) summary += '\n\n';
-      summary += `⚠ Skipped ${skipped.length} document${skipped.length > 1 ? 's' : ''}:\n`;
-      summary += skipped.map(t => `  • ${t}`).join('\n');
+      await showWarningDialog(j, 'Import Complete', msg);
+    } else if (imported.length > 0) {
+      await showSuccessDialog(j, 'Import Complete', msg);
     }
-    
-    await j.views.dialogs.showMessageBox(summary || 'Import completed');
   }
   
   return { selected: fids, created, bound };

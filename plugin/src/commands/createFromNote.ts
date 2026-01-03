@@ -1,19 +1,14 @@
 /**
  * createFromNote - Create a new Google Doc from a Joplin note
+ * 
+ * Uses GoogleDocsProvider for document operations.
+ * Creates the doc, binds it, and immediately pushes the note content.
  */
 
-import type { DriveLike } from '../mapping';
-import {
-  bindNote,
-  setDriveAppProperties,
-  APP_PROPERTY_PLUGIN_ID,
-  APP_PROPERTY_VERSION,
-  APP_PROPERTY_NOTE_ID,
-  PLUGIN_ID,
-} from '../mapping';
+import { bindNote, PLUGIN_ID } from '../mapping';
 import { createSyncContext } from '../services/SyncContext';
-import { ensureSyncFolder } from '../services/SyncFolderManager';
 import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
+import { pushNoteById } from './pushNote';
 
 /**
  * Parameters for createFromNote command
@@ -39,10 +34,10 @@ type CreateResult = {
  * Creates a new Google Doc from a Joplin note.
  * 
  * This function:
- * 1. Ensures the sync folder exists
+ * 1. Ensures the sync folder exists (via provider)
  * 2. Gets the note title
- * 3. Creates a new Google Doc in the sync folder
- * 4. Sets appProperties to bind the doc to the note
+ * 3. Creates a new Google Doc in the sync folder (via provider)
+ * 4. Sets appProperties to bind the doc to the note (via provider)
  * 5. Updates the local mapping
  * 
  * @param params - Create parameters including Joplin API, paths, and optional noteId
@@ -55,8 +50,8 @@ export async function createFromNote(params: Params): Promise<CreateResult> {
   // Create sync context with authenticated API clients
   const ctx = await createSyncContext(installDir, dataDir);
 
-  // Ensure sync folder exists
-  const syncFolderId = await ensureSyncFolder(ctx.drive, dataDir);
+  // Ensure sync folder exists via provider
+  const syncFolderId = await ctx.provider.ensureSyncFolder();
 
   // Determine the note ID using NoteOperations
   const noteId = params.noteId || await getSelectedNoteId(j);
@@ -65,25 +60,20 @@ export async function createFromNote(params: Params): Promise<CreateResult> {
   const note = await getNoteById(j, noteId, ['id', 'title']);
   const baseName: string = (note.title && String(note.title).trim()) || 'Untitled Note';
 
-  // Create Google Doc under the sync folder (app-owned)
-  const createdDoc = await ctx.drive.files.create({
-    requestBody: {
-      name: baseName,
-      parents: [syncFolderId],
-      mimeType: 'application/vnd.google-apps.document',
-    },
-    fields: 'id',
-    supportsAllDrives: true,
-  });
-  const newFileId = createdDoc.data.id as string;
+  // Create Google Doc under the sync folder via provider
+  const createResult = await ctx.provider.createDocument(baseName, syncFolderId);
+  const newFileId = createResult.metadata.id;
 
-  // Set appProperties and bind locally
-  await setDriveAppProperties(ctx.drive as unknown as DriveLike, newFileId, {
-    [APP_PROPERTY_NOTE_ID]: noteId,
-    [APP_PROPERTY_PLUGIN_ID]: PLUGIN_ID,
-    [APP_PROPERTY_VERSION]: '1',
+  // Set appProperties and bind locally via provider
+  await ctx.provider.setDocumentBinding(newFileId, {
+    noteId,
+    pluginId: PLUGIN_ID,
+    version: '1',
   });
   bindNote(dataDir, noteId, { fileId: newFileId });
+
+  // Push note content to the newly created doc
+  await pushNoteById({ j, installDir, dataDir, noteId });
 
   return { noteId, newFileId, syncFolderId };
 }

@@ -1,11 +1,13 @@
 /**
  * pullNote - Pull content from a bound Google Doc into a Joplin note
+ * 
+ * Uses GoogleDocsProvider for document operations.
  */
 
 import { loadMapping, saveMapping } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
-import { convertDocumentToMarkdown } from '../converter';
-import { createSyncContext } from '../services/SyncContext';
+import { convertDocumentToMarkdown } from '../converters';
+import { createSyncContext, SyncContext } from '../services/SyncContext';
 import { getSelectedNoteId, updateNoteBody } from '../services/NoteOperations';
 
 /**
@@ -17,15 +19,19 @@ type Params = {
   dataDir: string;
   /** Optional noteId - if not provided, uses the currently selected note */
   noteId?: string;
+  /** Optional pre-created SyncContext - avoids re-authentication if provided */
+  ctx?: SyncContext;
 };
 
 /**
  * Result of a successful pull operation
  */
-type PullResult = {
+export type PullResult = {
   noteId: string;
   tabCount: number;
   usedTabTitle: string;
+  /** Whether the note content was actually updated (false if identical) */
+  updated?: boolean;
 };
 
 /**
@@ -33,9 +39,9 @@ type PullResult = {
  * 
  * This function:
  * 1. Gets the note's binding (fileId and optional tabId)
- * 2. Fetches the document content from Google Docs
+ * 2. Fetches the document content via provider
  * 3. Converts the content to Markdown
- * 4. Updates the Joplin note body
+ * 4. Updates the Joplin note body (if changed)
  * 5. Updates the local mapping with new revision info
  * 
  * @param params - Pull parameters including Joplin API, paths, and optional noteId
@@ -45,8 +51,8 @@ type PullResult = {
 export async function pullNote(params: Params): Promise<PullResult> {
   const { j, installDir, dataDir } = params;
 
-  // Create sync context with authenticated API clients
-  const ctx = await createSyncContext(installDir, dataDir);
+  // Create sync context with authenticated API clients (or use provided one)
+  const ctx = params.ctx || await createSyncContext(installDir, dataDir);
 
   // Determine the note ID using NoteOperations
   const noteId = params.noteId || await getSelectedNoteId(j);
@@ -59,6 +65,8 @@ export async function pullNote(params: Params): Promise<PullResult> {
   }
 
   // Fetch and convert document content
+  // Note: Using buildConversionDocFromTabs for tab selection support
+  // The provider's getDocument() could be extended to support tabs in future
   const sel = await buildConversionDocFromTabs(ctx.docs, binding.fileId, { tabId: binding.tabId });
   const convertDoc = (sel as any).convertDoc;
   const tabCount = (sel as any).tabCount || 0;
@@ -67,12 +75,20 @@ export async function pullNote(params: Params): Promise<PullResult> {
   // Convert to Markdown
   const md = convertDocumentToMarkdown(convertDoc, { installDir });
 
-  // Update note body using NoteOperations
-  await updateNoteBody(j, noteId, md);
+  // Compare with existing content to avoid unnecessary writes
+  const existingNote = await j.data.get(['notes', noteId], { fields: ['body'] });
+  const existingBody = (existingNote?.body || '').trim();
+  const newBody = md.trim();
+  
+  let updated = false;
+  if (existingBody !== newBody) {
+    // Update note body using NoteOperations
+    await updateNoteBody(j, noteId, md);
+    updated = true;
+  }
 
-  // Update mapping with new revision info
-  const docMeta = await ctx.docs.documents.get({ documentId: binding.fileId });
-  const newRevisionId = String((docMeta.data as any).revisionId || '');
+  // Update mapping with new revision info via provider
+  const newRevisionId = await ctx.provider.getRevisionId(binding.fileId);
 
   if (newRevisionId) {
     mapping.notes[noteId] = {
@@ -83,5 +99,5 @@ export async function pullNote(params: Params): Promise<PullResult> {
     saveMapping(dataDir, mapping);
   }
 
-  return { noteId, tabCount, usedTabTitle };
+  return { noteId, tabCount, usedTabTitle, updated };
 }

@@ -54,6 +54,12 @@ elif [ -f "$ROOT_DIR/../google-api-tests/config/md-mapping.json" ]; then
   cp "$ROOT_DIR/../google-api-tests/config/md-mapping.json" "$DEST/config/md-mapping.json"
 fi
 
+# Copy .env file for OAuth credentials and GCS settings
+if [ -f "$ROOT_DIR/.env" ]; then
+  cp "$ROOT_DIR/.env" "$DEST/.env"
+  echo "[deploy] Copied .env to destination"
+fi
+
 echo "[deploy] Done."
 
 

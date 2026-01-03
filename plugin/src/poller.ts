@@ -1,10 +1,15 @@
+/**
+ * MinimalPoller - Handles bidirectional sync between Joplin notes and Google Docs
+ * 
+ * Uses SyncContext for authenticated API access and delegates to pullNote/pushNote commands.
+ */
+
 import fs from 'fs';
 import path from 'path';
-import { google } from 'googleapis';
-import { buildConversionDocFromTabs } from './structure';
-import { convertDocumentToMarkdown } from './converter';
-import { loadMapping, saveMapping, Mapping as PluginMapping } from './mapping';
-import { pushNoteById } from './commands/pushNote';
+import { loadMapping, Mapping as PluginMapping } from './mapping';
+import { pushNote } from './commands/pushNote';
+import { pullNote } from './commands/pullNote';
+import { SyncContext } from './services/SyncContext';
 
 function loadJson<T>(p: string, fallback: T): T {
   try {
@@ -16,14 +21,28 @@ function loadJson<T>(p: string, fallback: T): T {
 
 export class MinimalPoller {
   private statePath: string;
-  private dataDir: string;
-  private drive = google.drive({ version: 'v3' });
-  private docs = google.docs({ version: 'v1' });
+  private ctx: SyncContext;
 
-  constructor(dataDir: string) {
-    this.dataDir = dataDir;
+  /**
+   * Create a new MinimalPoller
+   * @param ctx - SyncContext with authenticated API clients
+   */
+  constructor(ctx: SyncContext) {
+    this.ctx = ctx;
     // State file for Drive Changes API pageToken
-    this.statePath = path.resolve(dataDir, 'changes.state.json');
+    this.statePath = path.resolve(ctx.dataDir, 'changes.state.json');
+  }
+  
+  private get dataDir(): string {
+    return this.ctx.dataDir;
+  }
+  
+  private get drive() {
+    return this.ctx.drive;
+  }
+  
+  private get docs() {
+    return this.ctx.docs;
   }
 
   private loadState(): any {
@@ -42,22 +61,28 @@ export class MinimalPoller {
     return loadMapping(this.dataDir);
   }
 
-  async initIfNeeded(auth: any): Promise<string | null> {
+  /**
+   * Initialize the poller state if needed
+   * @returns The existing pageToken, or null if we just initialized
+   */
+  async initIfNeeded(): Promise<string | null> {
     const st = this.loadState();
     if (st.pageToken) return st.pageToken;
-    const drive = google.drive({ version: 'v3', auth });
-    const startRes = await drive.changes.getStartPageToken({ supportsAllDrives: true });
+    const startRes = await this.drive.changes.getStartPageToken({ supportsAllDrives: true });
     const pageToken = startRes.data.startPageToken as string;
     this.saveState({ pageToken });
     console.info('[plugin-poller] Initialized pageToken:', pageToken);
     return null;
   }
 
-  async processOnce(auth: any): Promise<{ matched: number; items: Array<{ noteId: string; fileId: string; tabMatched: boolean }> }> {
+  /**
+   * Process Drive changes once, returning items that need syncing
+   * @returns Matched items with their file/note IDs
+   */
+  async processOnce(): Promise<{ matched: number; items: Array<{ noteId: string; fileId: string; tabMatched: boolean }> }> {
     const st = this.loadState();
     if (!st.pageToken) return { matched: 0, items: [] };
-    const drive = google.drive({ version: 'v3', auth });
-    const docs = google.docs({ version: 'v1', auth });
+    const { drive, docs } = this;
     const mapping = this.getMapping();
 
     const fileIdToNoteId: Record<string, string> = {};
@@ -151,11 +176,14 @@ export class MinimalPoller {
     return { matched, items };
   }
 
-  // Decide push vs pull per item by comparing revisionId and timestamps
-  async decideOnce(auth: any, j: any): Promise<{ matched: number; decisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }> }> {
-    const base = await this.processOnce(auth);
-    const drive = google.drive({ version: 'v3', auth });
-    const docs = google.docs({ version: 'v1', auth });
+  /**
+   * Decide push vs pull per item by comparing revisionId and timestamps
+   * @param j - Joplin API
+   * @returns Decisions for each item that needs syncing
+   */
+  async decideOnce(j: any): Promise<{ matched: number; decisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }> }> {
+    const base = await this.processOnce();
+    const { drive, docs } = this;
     const mapping = this.getMapping();
     const allDecisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push' | 'skip'; reason: string }> = [];
     
@@ -235,26 +263,34 @@ export class MinimalPoller {
     return { matched: decisions.length, decisions };
   }
 
-  // Execute decisions: push or pull items, update mapping metadata on success
-  async syncOnce(auth: any, j: any, installDir: string, dataDir: string): Promise<{ matched: number; updated: number; decisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }> }> {
-    const { matched, decisions } = await this.decideOnce(auth, j);
+  /**
+   * Execute sync decisions: push or pull items
+   * Uses pullNote() and pushNote() commands to avoid duplicate logic
+   * 
+   * @param j - Joplin API
+   * @returns Sync results with decision details
+   */
+  async syncOnce(j: any): Promise<{ matched: number; updated: number; decisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }> }> {
+    const { matched, decisions } = await this.decideOnce(j);
     let updated = 0;
-    const docs = google.docs({ version: 'v1', auth });
-    let mapping = loadMapping(dataDir);
+    const { installDir, dataDir } = this.ctx;
+    
     for (const d of decisions) {
       try {
         if (d.action === 'push') {
-          await executePush(j, installDir, dataDir, d.noteId);
+          // Use pushNote command - reuses existing SyncContext
+          await pushNote({ j, installDir, dataDir, noteId: d.noteId, ctx: this.ctx });
           updated += 1;
         } else {
-          const pullResult = await executePull(j, docs, installDir, d.noteId, d.fileId);
-          await updateMappingAfterPull(dataDir, docs, d.noteId, d.fileId, pullResult.noteUpdatedTime);
-          if (pullResult.updated) {
+          // Use pullNote command - reuses existing SyncContext
+          const result = await pullNote({ j, installDir, dataDir, noteId: d.noteId, ctx: this.ctx });
+          if (result.updated) {
             updated += 1;
           }
         }
-      } catch {
-        // continue
+      } catch (err) {
+        console.error(`[plugin-poller] Error syncing note ${d.noteId}:`, err);
+        // continue with other notes
       }
     }
     return { matched, updated, decisions };
@@ -301,47 +337,3 @@ function decideAction(args: {
   // Nothing changed - skip instead of defaulting to pull (which would cause sync loop)
   return { action: 'skip', reason: 'noChanges' };
 }
-
-async function executePull(j: any, docs: any, installDir: string, noteId: string, fileId: string): Promise<{ updated: boolean; noteUpdatedTime: number }> {
-  const sel = await buildConversionDocFromTabs(docs, fileId, { tabId: undefined });
-  const convertDoc = (sel as any).convertDoc;
-  const md = convertDocumentToMarkdown(convertDoc, { installDir });
-  
-  // Compare with existing note content to avoid unnecessary writes
-  // (Google Docs revisionId changes even without content changes)
-  const existingNote = await j.data.get(['notes', noteId], { fields: ['body', 'updated_time'] });
-  const existingBody = (existingNote.body || '').trim();
-  const newBody = md.trim();
-  
-  if (existingBody === newBody) {
-    // Content is identical - skip the write, just update mapping
-    console.info('[plugin-poller] Skipping pull - content identical for note', noteId);
-    return { updated: false, noteUpdatedTime: Number(existingNote.updated_time || Date.now()) };
-  }
-  
-  await j.data.put(['notes', noteId], null, { body: md });
-  
-  // Return the note's updated_time after the write
-  const noteMeta = await j.data.get(['notes', noteId], { fields: ['updated_time'] });
-  return { updated: true, noteUpdatedTime: Number(noteMeta.updated_time || Date.now()) };
-}
-
-async function updateMappingAfterPull(dataDir: string, docs: any, noteId: string, fileId: string, noteUpdatedTime: number): Promise<void> {
-  const docMeta = await docs.documents.get({ documentId: fileId });
-  const docRevisionId = String((docMeta.data as any).revisionId || '');
-  const mapping = loadMapping(dataDir);
-  const nb = (mapping.notes[noteId] || {}) as any;
-  nb.fileId = fileId;
-  if (docRevisionId) nb.lastKnownRevisionId = docRevisionId;
-  // Use the actual note updated_time to prevent timing race
-  nb.lastSyncTs = noteUpdatedTime;
-  mapping.notes[noteId] = nb;
-  saveMapping(dataDir, mapping);
-}
-
-async function executePush(j: any, installDir: string, dataDir: string, noteId: string): Promise<void> {
-  await pushNoteById({ j, installDir, dataDir, noteId });
-}
-
-
-

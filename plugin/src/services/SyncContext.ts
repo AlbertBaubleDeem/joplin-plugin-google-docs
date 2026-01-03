@@ -6,6 +6,7 @@
  */
 
 import { getAuthFromInstallDir } from './auth';
+import { GoogleDocsProvider } from '../providers/GoogleDocsProvider';
 
 /**
  * Context object containing all authenticated API clients and paths
@@ -20,6 +21,8 @@ export interface SyncContext {
   drive: any;
   /** Pre-created Google Docs client (v1) */
   docs: any;
+  /** Document provider for OOP access to document operations */
+  provider: GoogleDocsProvider;
   /** Path to the plugin installation directory */
   installDir: string;
   /** Path to the plugin data directory */
@@ -49,11 +52,16 @@ export async function createSyncContext(
   const drive = google.drive({ version: 'v3', auth });
   const docs = google.docs({ version: 'v1', auth });
   
+  // Create a partial context for the provider (it needs drive/docs)
+  const partialCtx = { google, auth, drive, docs, installDir, dataDir };
+  const provider = new GoogleDocsProvider(partialCtx as SyncContext);
+  
   return {
     google,
     auth,
     drive,
     docs,
+    provider,
     installDir,
     dataDir,
   };

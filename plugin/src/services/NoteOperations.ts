@@ -69,6 +69,28 @@ export async function getSelectedNoteIdOrUndefined(j: JoplinApi): Promise<string
 }
 
 /**
+ * Gets effective note IDs from either provided array or workspace selection.
+ * This is the preferred way to get note IDs for multi-note operations.
+ * 
+ * Use case: Commands that can be triggered from both:
+ * - Command palette (no noteIds parameter, uses workspace selection)
+ * - Context menu (noteIds provided as parameter)
+ * 
+ * @param j - Joplin API instance
+ * @param noteIds - Optional array of note IDs (from context menu)
+ * @returns Promise resolving to array of note IDs (may be empty)
+ */
+export async function getEffectiveNoteIds(j: JoplinApi, noteIds?: string[]): Promise<string[]> {
+  // If noteIds provided and valid, use them
+  if (noteIds && Array.isArray(noteIds) && noteIds.length) {
+    return noteIds;
+  }
+  // Otherwise, get from workspace selection
+  const selected = await j.workspace.selectedNoteIds();
+  return selected || [];
+}
+
+/**
  * Gets note data by ID.
  * 
  * @param j - Joplin API instance
