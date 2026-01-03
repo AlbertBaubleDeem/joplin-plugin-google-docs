@@ -140,12 +140,3 @@ export function convertDocumentToMarkdown(
   return irToMarkdown(ir, config);
 }
 
-/**
- * Load mapping config.
- * 
- * This is a backward-compatible export that matches the old converter API.
- */
-export function loadMdMappingConfig(installDir?: string): ConverterConfig {
-  return loadConfig(installDir);
-}
-

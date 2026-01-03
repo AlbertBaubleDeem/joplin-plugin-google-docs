@@ -69,22 +69,6 @@ export async function getSelectedNoteIdOrUndefined(j: JoplinApi): Promise<string
 }
 
 /**
- * Gets all currently selected note IDs.
- * Supports multi-selection (shift+click, ctrl+click).
- * 
- * @param j - Joplin API instance
- * @returns Promise resolving to array of selected note IDs
- * @throws Error if no notes are selected
- */
-export async function getAllSelectedNoteIds(j: JoplinApi): Promise<string[]> {
-  const selected = await j.workspace.selectedNoteIds();
-  if (!selected || !selected.length) {
-    throw new Error('No notes are selected.');
-  }
-  return selected;
-}
-
-/**
  * Gets effective note IDs from either provided array or workspace selection.
  * This is the preferred way to get note IDs for multi-note operations.
  * 
