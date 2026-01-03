@@ -86,9 +86,15 @@ export async function batchPull(params: BatchParams): Promise<BatchResult | null
     setDebugMode(true, dataDir);
   }
 
-  // Single note - use original simple flow
+  // Single note - check binding and show appropriate message
   if (effectiveNoteIds.length === 1) {
-    await pullNote({ j, installDir, dataDir, noteId: effectiveNoteIds[0] });
+    const noteId = effectiveNoteIds[0];
+    const binding = getBinding(dataDir, noteId);
+    if (!binding?.fileId) {
+      await showInfoDialog(j, { title: 'Not Bound', message: 'This note is not linked to a Google Doc.\n\nUse "Export Note into Doc" or "Bind Note to Doc" first.', icon: 'ℹ️' });
+      return { success: 0, skipped: 1, failed: 0 };
+    }
+    await pullNote({ j, installDir, dataDir, noteId });
     await showSuccessDialog(j, 'Pull Complete', 'Note updated from Google Doc.');
     return { success: 1, skipped: 0, failed: 0 };
   }
@@ -137,9 +143,15 @@ export async function batchPush(params: BatchParams): Promise<BatchResult | null
     setDebugMode(true, dataDir);
   }
 
-  // Single note - use original simple flow
+  // Single note - check binding and show appropriate message
   if (effectiveNoteIds.length === 1) {
-    await pushNote({ j, installDir, dataDir, noteId: effectiveNoteIds[0] });
+    const noteId = effectiveNoteIds[0];
+    const binding = getBinding(dataDir, noteId);
+    if (!binding?.fileId) {
+      await showInfoDialog(j, { title: 'Not Bound', message: 'This note is not linked to a Google Doc.\n\nUse "Export Note into Doc" or "Bind Note to Doc" first.', icon: 'ℹ️' });
+      return { success: 0, skipped: 1, failed: 0 };
+    }
+    await pushNote({ j, installDir, dataDir, noteId });
     await showSuccessDialog(j, 'Push Complete', 'Note pushed to Google Doc.');
     return { success: 1, skipped: 0, failed: 0 };
   }

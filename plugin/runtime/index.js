@@ -18,7 +18,7 @@ console.warn('[gdocs] root index executing');
       return require(path.resolve(installDir, 'dist', modPath));
     }
     
-    // Auth error handling helper
+    // Auth error handling helper - non-auth errors go to console only (per audit)
     async function handleError(e, errorPrefix) {
       const { installDir, dataDir } = await getDirs();
       const { isAuthError, handleAuthError } = resolveMod(installDir, 'services/authErrorHandler.js');

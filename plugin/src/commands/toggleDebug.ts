@@ -1,10 +1,10 @@
 /**
  * Toggle converter debug mode command.
+ * Uses showMessageBox intentionally - distinct style for debug functionality.
  */
 
 import * as fs from 'fs';
 import { setDebugMode, getDebugLogPath } from '../converter';
-import { showInfoDialog } from '../services/styledDialogs';
 
 type JoplinApi = any;
 
@@ -37,17 +37,11 @@ export async function toggleConverterDebug(params: ToggleDebugParams): Promise<v
 
   if (converterDebugEnabled && logPath) {
     const exists = fs.existsSync(logPath);
-    await showInfoDialog(j, {
-      title: 'Debug Enabled',
-      message: `Converter debug ON.\n\nLog: ${logPath}\nExists: ${exists}`,
-      icon: '🐛',
-    });
+    await j.views.dialogs.showMessageBox(
+      `Converter debug ENABLED.\n\nLog file: ${logPath}\nFile exists: ${exists}\nDataDir: ${dataDir}`
+    );
   } else {
-    await showInfoDialog(j, {
-      title: 'Debug Disabled',
-      message: 'Converter debug OFF.',
-      icon: '🐛',
-    });
+    await j.views.dialogs.showMessageBox('Converter debug DISABLED.');
   }
 }
 
