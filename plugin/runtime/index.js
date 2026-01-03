@@ -152,11 +152,10 @@ console.warn('[gdocs] root index executing');
       const dataDir = await j.plugins.dataDir();
       const dialogs = await getStyledDialogs();
       
-      // Get note IDs from parameter or workspace selection
-      if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
-        noteIds = await j.workspace.selectedNoteIds();
-      }
-      if (!noteIds || !noteIds.length) {
+      // Get effective note IDs from parameter or workspace selection
+      const { getEffectiveNoteIds } = require(path.resolve(installDir, 'dist/services/NoteOperations.js'));
+      const effectiveNoteIds = await getEffectiveNoteIds(j, noteIds);
+      if (!effectiveNoteIds.length) {
         await dialogs.showWarningDialog(j, 'No Selection', 'Please select a note first.');
         return;
       }
@@ -165,7 +164,7 @@ console.warn('[gdocs] root index executing');
       const { unbindNoteDoer } = require(path.resolve(installDir, 'dist/commands/unbindNote.js'));
 
       let unbound = 0, skipped = 0;
-      for (const noteId of noteIds) {
+      for (const noteId of effectiveNoteIds) {
         const binding = getBinding(dataDir, noteId);
         if (!binding) {
           skipped++;
@@ -176,7 +175,7 @@ console.warn('[gdocs] root index executing');
       }
 
       // Show appropriate message based on count
-      if (noteIds.length === 1) {
+      if (effectiveNoteIds.length === 1) {
         if (unbound) {
           await dialogs.showSuccessDialog(j, 'Unbound', 'Note unlinked from Google Doc.');
         } else {
@@ -196,11 +195,10 @@ console.warn('[gdocs] root index executing');
         const dataDir = await j.plugins.dataDir();
         const dialogs = await getStyledDialogs();
         
-        // Get note IDs from parameter or workspace selection
-        if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
-          noteIds = await j.workspace.selectedNoteIds();
-        }
-        if (!noteIds || !noteIds.length) {
+        // Get effective note IDs from parameter or workspace selection
+        const { getEffectiveNoteIds } = require(path.resolve(installDir, 'dist/services/NoteOperations.js'));
+        const effectiveNoteIds = await getEffectiveNoteIds(j, noteIds);
+        if (!effectiveNoteIds.length) {
           await dialogs.showWarningDialog(j, 'No Selection', 'Please select a note first.');
           return;
         }
@@ -215,8 +213,8 @@ console.warn('[gdocs] root index executing');
         const { pullNote } = require(path.resolve(installDir, 'dist/commands/pullNote.js'));
 
         // Single note - use original simple flow
-        if (noteIds.length === 1) {
-          await pullNote({ j, installDir, dataDir, noteId: noteIds[0] });
+        if (effectiveNoteIds.length === 1) {
+          await pullNote({ j, installDir, dataDir, noteId: effectiveNoteIds[0] });
           await dialogs.showSuccessDialog(j, 'Pull Complete', 'Note updated from Google Doc.');
           return;
         }
@@ -224,7 +222,7 @@ console.warn('[gdocs] root index executing');
         // Multiple notes - batch process with summary
         let pulled = 0, skipped = 0, failed = 0;
 
-        for (const noteId of noteIds) {
+        for (const noteId of effectiveNoteIds) {
           const binding = getBinding(dataDir, noteId);
           if (!binding) {
             skipped++;
@@ -285,11 +283,10 @@ console.warn('[gdocs] root index executing');
         const dataDir = await j.plugins.dataDir();
         const dialogs = await getStyledDialogs();
         
-        // Get note IDs from parameter or workspace selection
-        if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
-          noteIds = await j.workspace.selectedNoteIds();
-        }
-        if (!noteIds || !noteIds.length) {
+        // Get effective note IDs from parameter or workspace selection
+        const { getEffectiveNoteIds } = require(path.resolve(installDir, 'dist/services/NoteOperations.js'));
+        const effectiveNoteIds = await getEffectiveNoteIds(j, noteIds);
+        if (!effectiveNoteIds.length) {
           await dialogs.showWarningDialog(j, 'No Selection', 'Please select a note first.');
           return;
         }
@@ -304,8 +301,8 @@ console.warn('[gdocs] root index executing');
         const { pushNote } = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
 
         // Single note - use original simple flow
-        if (noteIds.length === 1) {
-          await pushNote({ j, installDir, dataDir, noteId: noteIds[0] });
+        if (effectiveNoteIds.length === 1) {
+          await pushNote({ j, installDir, dataDir, noteId: effectiveNoteIds[0] });
           await dialogs.showSuccessDialog(j, 'Push Complete', 'Note pushed to Google Doc.');
           return;
         }
@@ -313,7 +310,7 @@ console.warn('[gdocs] root index executing');
         // Multiple notes - batch process with summary
         let pushed = 0, skipped = 0, failed = 0;
 
-        for (const noteId of noteIds) {
+        for (const noteId of effectiveNoteIds) {
           const binding = getBinding(dataDir, noteId);
           if (!binding) {
             skipped++;
