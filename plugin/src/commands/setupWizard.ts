@@ -15,6 +15,7 @@ import * as path from 'path';
 import { SETTING_KEYS, getSettings } from '../services/settings';
 import { hasValidTokens } from '../services/oauthServer';
 import { authorize } from './authorize';
+import { showErrorDialog } from '../services/styledDialogs';
 
 export interface SetupWizardParams {
   j: any;
@@ -120,7 +121,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
           currentStep = 'syncFolder';
         } else {
           // Authorization failed, stay on this step
-          await j.views.dialogs.showMessageBox('Authorization failed. Please try again.');
+          await showErrorDialog(j, 'Authorization Failed', 'Please try again.');
         }
         break;
       }
@@ -267,7 +268,7 @@ async function showCredentialsStep(
   const clientSecret = (fd.clientSecret || '').trim();
   
   if (!clientId || !clientSecret) {
-    await j.views.dialogs.showMessageBox('Please enter both Client ID and Client Secret.');
+    await showErrorDialog(j, 'Missing Credentials', 'Please enter both Client ID and Client Secret.');
     return showCredentialsStep(j, clientId, clientSecret);
   }
   

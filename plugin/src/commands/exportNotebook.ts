@@ -8,6 +8,7 @@ import { loadMapping, saveMapping, bindNote, PLUGIN_ID } from '../mapping';
 import { createSyncContext } from '../services/SyncContext';
 import { getSelectedFolder, getFolderById, getNotesInFolder } from '../services/NoteOperations';
 import { pushNoteById } from './pushNote';
+import { showWarningDialog, showInfoDialog } from '../services/styledDialogs';
 
 const APP_PROPERTY_NOTE_ID = 'joplinNoteId';
 const APP_PROPERTY_NOTEBOOK_ID = 'joplinNotebookId';
@@ -86,10 +87,7 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
 
   if (notes.length > 50) {
     // Warn but continue
-    await j.views.dialogs.showMessageBox(
-      `Warning: This notebook has ${notes.length} notes. Google Docs supports up to 100 tabs, ` +
-      `but performance may degrade with many tabs. Continuing...`
-    );
+    await showWarningDialog(j, 'Large Notebook', `This notebook has ${notes.length} notes. Performance may degrade with many documents.`);
   }
 
   // Filter out already synced notes
@@ -97,18 +95,17 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
   const unboundNotes = notes.filter((note: any) => !mapping.notes[note.id]?.fileId);
 
   if (unboundNotes.length === 0) {
-    await j.views.dialogs.showMessageBox(
-      'All notes in this notebook are already synced to Google Docs. Nothing to export.'
-    );
+    await showInfoDialog(j, { title: 'Already Synced', message: 'All notes in this notebook are already synced.', icon: 'ℹ️' });
     return;
   }
 
   const boundCount = notes.length - unboundNotes.length;
   if (boundCount > 0) {
-    await j.views.dialogs.showMessageBox(
-      `${boundCount} notes in this notebook are already synced and will be skipped. ` +
-      `${unboundNotes.length} unsynced notes will be exported to a new folder.`
-    );
+    await showInfoDialog(j, { 
+      title: 'Partial Export', 
+      message: `${boundCount} notes already synced (skipped). Exporting ${unboundNotes.length} new notes.`,
+      icon: 'ℹ️' 
+    });
   }
 
   // Ensure sync folder exists via provider

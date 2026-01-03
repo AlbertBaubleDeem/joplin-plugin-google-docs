@@ -7,6 +7,13 @@ console.warn('[gdocs] root index executing');
     // Debug mode state for converter IR logging
     let converterDebugEnabled = false;
     
+    // Helper to get styled dialogs module
+    async function getStyledDialogs() {
+      const path = require('path');
+      const installDir = (await j.plugins.installationDir()) || '';
+      return require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
+    }
+    
     // Auth error handling helper - delegates to authErrorHandler module
     async function handleError(e, errorPrefix) {
       const path = require('path');
@@ -19,10 +26,10 @@ console.warn('[gdocs] root index executing');
         console.log('[gdocs] handleError - detected auth error');
         await handleAuthError(j, e, installDir, dataDir);
       } else {
-        // Non-auth error, show normal message
+        // Non-auth error, log to console only (no popup)
         const raw = (e && e.response && e.response.data) || (e && e.message) || e;
         const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-        await j.views.dialogs.showMessageBox(errorPrefix + ': ' + msg);
+        console.error('[gdocs]', errorPrefix + ':', msg);
       }
     }
 
@@ -42,11 +49,14 @@ console.warn('[gdocs] root index executing');
         const poller = new MinimalPoller(ctx);
         
         const maybe = await poller.initIfNeeded();
-        if (maybe === null) { await j.views.dialogs.showMessageBox('Initialized Drive pageToken. Run Poll Once again.'); return; }
+        const dialogs = await getStyledDialogs();
+        if (maybe === null) { 
+          await dialogs.showInfoDialog(j, { title: 'Sync Initialized', message: 'Drive sync has been initialized. Run Poll Once again to sync.', icon: '🔄' }); 
+          return; 
+        }
         
         const syncRes = await poller.syncOnce(j);
-        const lines = (syncRes.decisions || []).map(d => `- noteId=${d.noteId} fileId=${d.fileId} action=${d.action} reason=${d.reason} tabMatched=${d.tabMatched}`);
-        await j.views.dialogs.showMessageBox('Poll completed. Matches: ' + syncRes.matched + ' Updated: ' + syncRes.updated + (lines.length ? ('\n' + lines.join('\n')) : ''));
+        await dialogs.showSuccessDialog(j, 'Poll Complete', `Matched: ${syncRes.matched} | Updated: ${syncRes.updated}`);
       } catch (e) {
         await handleError(e, 'Poll error');
       }
@@ -59,7 +69,8 @@ console.warn('[gdocs] root index executing');
         const dataDir = await j.plugins.dataDir();
         const mod = require(path.resolve(installDir, 'dist/commands/createFromNote.js'));
         const res = await mod.createFromNote({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox('Created Google Doc and bound note. newFileId=' + res.newFileId);
+        const dialogs = await getStyledDialogs();
+        await dialogs.showSuccessDialog(j, 'Document Created', 'Google Doc created and linked to this note.');
       } catch (e) {
         await handleError(e, 'Create-from-note error');
       }
@@ -134,35 +145,105 @@ console.warn('[gdocs] root index executing');
       await showSuccessDialog(j, 'Note Bound', 'Note bound to file ID: ' + fileId + (tabId ? (' (tab: ' + tabId + ')') : ''));
     }
 
-    async function unbindCurrentNote() {
-      const noteIds = await j.workspace.selectedNoteIds();
-      if (!noteIds.length) return;
-      const [noteId] = noteIds;
+    // Unbind - supports single or multiple notes (noteIds from context menu or workspace selection)
+    async function unbindNotes(noteIds) {
       const path = require('path');
       const installDir = (await j.plugins.installationDir()) || '';
       const dataDir = await j.plugins.dataDir();
-      const unbindDoerPath = path.resolve(installDir, 'dist/commands/unbindNote.js');
-      const { unbindNoteDoer } = require(unbindDoerPath);
-      unbindNoteDoer(dataDir, noteId);
-      await j.views.dialogs.showMessageBox('Unbound note.');
+      const dialogs = await getStyledDialogs();
+      
+      // Get note IDs from parameter or workspace selection
+      if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
+        noteIds = await j.workspace.selectedNoteIds();
+      }
+      if (!noteIds || !noteIds.length) {
+        await dialogs.showWarningDialog(j, 'No Selection', 'Please select a note first.');
+        return;
+      }
+
+      const { getBinding } = require(path.resolve(installDir, 'dist/mapping.js'));
+      const { unbindNoteDoer } = require(path.resolve(installDir, 'dist/commands/unbindNote.js'));
+
+      let unbound = 0, skipped = 0;
+      for (const noteId of noteIds) {
+        const binding = getBinding(dataDir, noteId);
+        if (!binding) {
+          skipped++;
+          continue;
+        }
+        unbindNoteDoer(dataDir, noteId);
+        unbound++;
+      }
+
+      // Show appropriate message based on count
+      if (noteIds.length === 1) {
+        if (unbound) {
+          await dialogs.showSuccessDialog(j, 'Unbound', 'Note unlinked from Google Doc.');
+        } else {
+          await dialogs.showInfoDialog(j, { title: 'Not Bound', message: 'This note was not linked to any Google Doc.', icon: 'ℹ️' });
+        }
+      } else {
+        const msg = `Unbound: ${unbound} | Skipped: ${skipped}`;
+        await dialogs.showSuccessDialog(j, 'Unbind Complete', msg);
+      }
     }
 
-    async function pullNow() {
+    // Pull - supports single or multiple notes (noteIds from context menu or workspace selection)
+    async function pullNotes(noteIds) {
       try {
         const path = require('path');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
+        const dialogs = await getStyledDialogs();
         
+        // Get note IDs from parameter or workspace selection
+        if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
+          noteIds = await j.workspace.selectedNoteIds();
+        }
+        if (!noteIds || !noteIds.length) {
+          await dialogs.showWarningDialog(j, 'No Selection', 'Please select a note first.');
+          return;
+        }
+
         // Enable debug mode if toggled on
         if (converterDebugEnabled) {
           const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
           converter.setDebugMode(true, dataDir);
         }
-        
-        const pullDoerPath = path.resolve(installDir, 'dist/commands/pullNote.js');
-        const { pullNote } = require(pullDoerPath);
-        const res = await pullNote({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox('Pulled content into the note.' + (res.tabCount ? (' tabs=' + res.tabCount + (res.usedTabTitle ? (' used="' + res.usedTabTitle + '"') : '')) : ''));
+
+        const { getBinding } = require(path.resolve(installDir, 'dist/mapping.js'));
+        const { pullNote } = require(path.resolve(installDir, 'dist/commands/pullNote.js'));
+
+        // Single note - use original simple flow
+        if (noteIds.length === 1) {
+          await pullNote({ j, installDir, dataDir, noteId: noteIds[0] });
+          await dialogs.showSuccessDialog(j, 'Pull Complete', 'Note updated from Google Doc.');
+          return;
+        }
+
+        // Multiple notes - batch process with summary
+        let pulled = 0, skipped = 0, failed = 0;
+
+        for (const noteId of noteIds) {
+          const binding = getBinding(dataDir, noteId);
+          if (!binding) {
+            skipped++;
+            continue;
+          }
+          try {
+            await pullNote({ j, installDir, dataDir, noteId });
+            pulled++;
+          } catch (e) {
+            failed++;
+          }
+        }
+
+        const msg = `Pulled: ${pulled} | Skipped: ${skipped}` + (failed ? ` | Failed: ${failed}` : '');
+        if (failed > 0) {
+          await dialogs.showWarningDialog(j, 'Pull Complete', msg);
+        } else {
+          await dialogs.showSuccessDialog(j, 'Pull Complete', msg);
+        }
       } catch (e) {
         await handleError(e, 'Pull error');
       }
@@ -196,39 +277,62 @@ console.warn('[gdocs] root index executing');
       }
     }
 
-    async function pushNow() {
+    // Push - supports single or multiple notes (noteIds from context menu or workspace selection)
+    async function pushNotes(noteIds) {
       try {
         const path = require('path');
-        const fs = require('fs');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
+        const dialogs = await getStyledDialogs();
         
-        // Check GCS configuration
-        const settingsMod = require(path.resolve(installDir, 'dist/services/settings.js'));
-        const gcsBucket = settingsMod.getGCSBucketName(installDir);
-        console.log('[gdocs] Push - GCS bucket:', gcsBucket || 'NOT CONFIGURED');
-        console.log('[gdocs] Push - installDir:', installDir);
-        
-        // Enable debug mode if toggled on - MUST be done before requiring commands
-        if (converterDebugEnabled) {
-          console.log('[gdocs] Enabling converter debug for push');
-          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
-          converter.setDebugMode(true, dataDir);
-          console.log('[gdocs] Debug mode set, isEnabled:', converter.isDebugEnabled());
+        // Get note IDs from parameter or workspace selection
+        if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
+          noteIds = await j.workspace.selectedNoteIds();
+        }
+        if (!noteIds || !noteIds.length) {
+          await dialogs.showWarningDialog(j, 'No Selection', 'Please select a note first.');
+          return;
         }
         
-        const mod = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
-        const res = await mod.pushNote({ j, installDir, dataDir });
-        
-        // Show debug log in message box
-        const debugSummary = res.debugLog ? res.debugLog.join('\n') : 'No debug log';
-        
-        // Show debug log in message box for troubleshooting
-        await j.views.dialogs.showMessageBox(
-          'Push Result\n\n' +
-          'revisionId: ' + res.newRevisionId + '\n\n' +
-          '=== Debug Log ===\n' + debugSummary
-        );
+        // Enable debug mode if toggled on
+        if (converterDebugEnabled) {
+          const converter = require(path.resolve(installDir, 'dist/converter/index.js'));
+          converter.setDebugMode(true, dataDir);
+        }
+
+        const { getBinding } = require(path.resolve(installDir, 'dist/mapping.js'));
+        const { pushNote } = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
+
+        // Single note - use original simple flow
+        if (noteIds.length === 1) {
+          await pushNote({ j, installDir, dataDir, noteId: noteIds[0] });
+          await dialogs.showSuccessDialog(j, 'Push Complete', 'Note pushed to Google Doc.');
+          return;
+        }
+
+        // Multiple notes - batch process with summary
+        let pushed = 0, skipped = 0, failed = 0;
+
+        for (const noteId of noteIds) {
+          const binding = getBinding(dataDir, noteId);
+          if (!binding) {
+            skipped++;
+            continue;
+          }
+          try {
+            await pushNote({ j, installDir, dataDir, noteId });
+            pushed++;
+          } catch (e) {
+            failed++;
+          }
+        }
+
+        const msg = `Pushed: ${pushed} | Skipped: ${skipped}` + (failed ? ` | Failed: ${failed}` : '');
+        if (failed > 0) {
+          await dialogs.showWarningDialog(j, 'Push Complete', msg);
+        } else {
+          await dialogs.showSuccessDialog(j, 'Push Complete', msg);
+        }
       } catch (e) {
         await handleError(e, 'Push error');
       }
@@ -241,7 +345,10 @@ console.warn('[gdocs] root index executing');
         const dataDir = await j.plugins.dataDir();
         const mod = require(path.resolve(installDir, 'dist/commands/drivePickerDialog.js'));
         const res = await mod.openDrivePickerDialog({ j, installDir, dataDir });
-        await j.views.dialogs.showMessageBox('Drive picker completed. selected=' + res.selected.length + ' created=' + res.created + ' bound=' + res.bound);
+        if (res.created > 0) {
+          const dialogs = await getStyledDialogs();
+          await dialogs.showSuccessDialog(j, 'Import Complete', `Imported ${res.created} document${res.created > 1 ? 's' : ''}.`);
+        }
       } catch (e) {
         await handleError(e, 'Picker error');
       }
@@ -252,149 +359,23 @@ console.warn('[gdocs] root index executing');
         const path = require('path');
         const installDir = (await j.plugins.installationDir()) || '';
         const dataDir = await j.plugins.dataDir();
+        const dialogs = await getStyledDialogs();
         
         // Check if a folder is selected
         const folder = await j.workspace.selectedFolder();
         if (!folder) {
-          await j.views.dialogs.showMessageBox('Please select a notebook first');
+          await dialogs.showWarningDialog(j, 'No Selection', 'Please select a notebook first.');
           return;
         }
         
         const mod = require(path.resolve(installDir, 'dist/commands/exportNotebook.js'));
         const res = await mod.exportNotebook({ j, installDir, dataDir, folderId: folder.id });
         if (res) {
-          await j.views.dialogs.showMessageBox(
-            `Successfully exported notebook to Google Drive folder.\n` +
-            `Folder ID: ${res.fileId}\n` +
-            `Notes exported: ${res.noteCount}`
-          );
+          await dialogs.showSuccessDialog(j, 'Export Complete', `Exported ${res.noteCount} note${res.noteCount > 1 ? 's' : ''} to Google Drive.`);
         }
       } catch (e) {
         await handleError(e, 'Export notebook error');
       }
-    }
-
-    // Multi-note operations for NoteListContextMenu
-    async function pushSelectedNotes(noteIds) {
-      const path = require('path');
-      const installDir = (await j.plugins.installationDir()) || '';
-      const dataDir = await j.plugins.dataDir();
-      
-      // Fallback to workspace selection if not provided (e.g., from Command Palette)
-      if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
-        noteIds = await j.workspace.selectedNoteIds();
-      }
-      
-      if (!noteIds || !noteIds.length) {
-        await j.views.dialogs.showMessageBox('No notes selected.');
-        return;
-      }
-
-      const { getBinding } = require(path.resolve(installDir, 'dist/mapping.js'));
-      const { pushNote } = require(path.resolve(installDir, 'dist/commands/pushNote.js'));
-
-      let pushed = 0, skipped = 0, failed = 0;
-      const errors = [];
-
-      for (const noteId of noteIds) {
-        const binding = getBinding(dataDir, noteId);
-        if (!binding) {
-          skipped++;
-          continue;
-        }
-        try {
-          await pushNote({ j, installDir, dataDir, noteId });
-          pushed++;
-        } catch (e) {
-          failed++;
-          errors.push(e.message || String(e));
-        }
-      }
-
-      const lines = [];
-      if (pushed) lines.push(`✓ Pushed ${pushed} note${pushed > 1 ? 's' : ''} successfully`);
-      if (skipped) lines.push(`⚠ Skipped ${skipped} note${skipped > 1 ? 's' : ''} (not bound)`);
-      if (failed) lines.push(`✗ Failed ${failed} note${failed > 1 ? 's' : ''}: ${errors.join('; ')}`);
-      await j.views.dialogs.showMessageBox(lines.join('\n') || 'No notes processed.');
-    }
-
-    async function pullSelectedNotes(noteIds) {
-      const path = require('path');
-      const installDir = (await j.plugins.installationDir()) || '';
-      const dataDir = await j.plugins.dataDir();
-      
-      // Fallback to workspace selection if not provided
-      if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
-        noteIds = await j.workspace.selectedNoteIds();
-      }
-      
-      if (!noteIds || !noteIds.length) {
-        await j.views.dialogs.showMessageBox('No notes selected.');
-        return;
-      }
-
-      const { getBinding } = require(path.resolve(installDir, 'dist/mapping.js'));
-      const { pullNote } = require(path.resolve(installDir, 'dist/commands/pullNote.js'));
-
-      let pulled = 0, skipped = 0, failed = 0;
-      const errors = [];
-
-      for (const noteId of noteIds) {
-        const binding = getBinding(dataDir, noteId);
-        if (!binding) {
-          skipped++;
-          continue;
-        }
-        try {
-          await pullNote({ j, installDir, dataDir, noteId });
-          pulled++;
-        } catch (e) {
-          failed++;
-          errors.push(e.message || String(e));
-        }
-      }
-
-      const lines = [];
-      if (pulled) lines.push(`✓ Pulled ${pulled} note${pulled > 1 ? 's' : ''} successfully`);
-      if (skipped) lines.push(`⚠ Skipped ${skipped} note${skipped > 1 ? 's' : ''} (not bound)`);
-      if (failed) lines.push(`✗ Failed ${failed} note${failed > 1 ? 's' : ''}: ${errors.join('; ')}`);
-      await j.views.dialogs.showMessageBox(lines.join('\n') || 'No notes processed.');
-    }
-
-    async function unbindSelectedNotes(noteIds) {
-      const path = require('path');
-      const installDir = (await j.plugins.installationDir()) || '';
-      const dataDir = await j.plugins.dataDir();
-      
-      // Fallback to workspace selection if not provided
-      if (!noteIds || !Array.isArray(noteIds) || !noteIds.length) {
-        noteIds = await j.workspace.selectedNoteIds();
-      }
-      
-      if (!noteIds || !noteIds.length) {
-        await j.views.dialogs.showMessageBox('No notes selected.');
-        return;
-      }
-
-      const { getBinding } = require(path.resolve(installDir, 'dist/mapping.js'));
-      const { unbindNoteDoer } = require(path.resolve(installDir, 'dist/commands/unbindNote.js'));
-
-      let unbound = 0, skipped = 0;
-
-      for (const noteId of noteIds) {
-        const binding = getBinding(dataDir, noteId);
-        if (!binding) {
-          skipped++;
-          continue;
-        }
-        unbindNoteDoer(dataDir, noteId);
-        unbound++;
-      }
-
-      const lines = [];
-      if (unbound) lines.push(`✓ Unbound ${unbound} note${unbound > 1 ? 's' : ''}`);
-      if (skipped) lines.push(`⚠ Skipped ${skipped} note${skipped > 1 ? 's' : ''} (already unbound)`);
-      await j.views.dialogs.showMessageBox(lines.join('\n') || 'No notes processed.');
     }
 
     j.plugins.register({
@@ -413,9 +394,9 @@ console.warn('[gdocs] root index executing');
         }
         
         // Commands with numbered labels for alphabetical sorting in command palette
-        // 01-02: Most common sync operations
-        await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: 01 Push', execute: async () => { await pushNow(); } });
-        await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: 02 Pull', execute: async () => { await pullNow(); } });
+        // 01-02: Most common sync operations (support single and multiple notes)
+        await j.commands.register({ name: 'gdocsPushNow', label: 'Google Docs Sync: 01 Push', execute: async (noteIds) => { await pushNotes(noteIds); } });
+        await j.commands.register({ name: 'gdocsPullNow', label: 'Google Docs Sync: 02 Pull', execute: async (noteIds) => { await pullNotes(noteIds); } });
         await j.commands.register({ name: 'gdocsPollOnce', label: 'Google Docs Sync: 03 Poll Once', execute: async () => { await pollOnce(); } });
         
         // 04-06: Document creation and management
@@ -423,8 +404,8 @@ console.warn('[gdocs] root index executing');
         await j.commands.register({ name: 'gdocsExportNotebook', label: 'Google Docs Sync: 05 Export Notebook into Docs', execute: async () => { await exportNotebookCmd(); } });
         await j.commands.register({ name: 'gdocsPicker', label: 'Google Docs Sync: 06 Import Doc into Note', execute: async () => { await openPickerCmd(); } });
         
-        // 07-08: Manual binding (less common)
-        await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: 07 Unbind Note from Doc', execute: async () => { await unbindCurrentNote(); } });
+        // 07-08: Manual binding (less common, 07 supports multiple notes)
+        await j.commands.register({ name: 'gdocsUnbind', label: 'Google Docs Sync: 07 Unbind Note from Doc', execute: async (noteIds) => { await unbindNotes(noteIds); } });
         await j.commands.register({ name: 'gdocsBind', label: 'Google Docs Sync: 08 Bind Note to Doc', execute: async () => { await bindCurrentNote(); } });
         
         // 09: Setup Wizard
@@ -471,23 +452,6 @@ console.warn('[gdocs] root index executing');
         // 11: Debugging
         await j.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: 11 Toggle Debug', execute: async () => { await toggleConverterDebug(); } });
         
-        // Multi-note selection commands (appear in context menu and multi-selection panel)
-        await j.commands.register({
-          name: 'gdocsPushSelected',
-          label: 'Push to Google Docs',
-          execute: async (noteIds) => { await pushSelectedNotes(noteIds); }
-        });
-        await j.commands.register({
-          name: 'gdocsPullSelected',
-          label: 'Pull from Google Docs',
-          execute: async (noteIds) => { await pullSelectedNotes(noteIds); }
-        });
-        await j.commands.register({
-          name: 'gdocsUnbindSelected',
-          label: 'Unbind from Google Docs',
-          execute: async (noteIds) => { await unbindSelectedNotes(noteIds); }
-        });
-        
         // Check if setup is needed on startup and show prompt
         try {
           const path = require('path');
@@ -505,9 +469,10 @@ console.warn('[gdocs] root index executing');
         await j.views.menuItems.create('notebookExportMenu', 'gdocsExportNotebook', 'folderContextMenu');
         
         // Add push/pull/unbind to note list context menu (also appears in multi-selection panel)
-        await j.views.menuItems.create('gdocsPushSelectedMenuItem', 'gdocsPushSelected', 'noteListContextMenu');
-        await j.views.menuItems.create('gdocsPullSelectedMenuItem', 'gdocsPullSelected', 'noteListContextMenu');
-        await j.views.menuItems.create('gdocsUnbindSelectedMenuItem', 'gdocsUnbindSelected', 'noteListContextMenu');
+        // Uses the same commands as command palette - they support single and multiple notes
+        await j.views.menuItems.create('gdocsPushMenuItem', 'gdocsPushNow', 'noteListContextMenu');
+        await j.views.menuItems.create('gdocsPullMenuItem', 'gdocsPullNow', 'noteListContextMenu');
+        await j.views.menuItems.create('gdocsUnbindMenuItem', 'gdocsUnbind', 'noteListContextMenu');
         
         // Register custom note list renderer with sync status indicators
         try {

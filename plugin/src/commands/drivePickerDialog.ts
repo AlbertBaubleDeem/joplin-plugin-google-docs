@@ -9,6 +9,7 @@ import { bindNote } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
 import { convertDocumentToMarkdown } from '../converter';
 import { createNote, determineTargetFolder } from '../services/NoteOperations';
+import { showWarningDialog, showSuccessDialog } from '../services/styledDialogs';
 
 type Params = { j: any; installDir: string; dataDir: string };
 
@@ -163,7 +164,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     // Handle import button
     if (r.id === 'import') {
       if (selectedIds.length === 0) {
-        await j.views.dialogs.showMessageBox('Please select at least one document to import.');
+        await showWarningDialog(j, 'No Selection', 'Please select at least one document to import.');
         continue;
       }
       break; // Exit loop to proceed with import
@@ -176,9 +177,6 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
   let bound = 0;
   
   if (fids.length) {
-    // Show progress dialog
-    await j.views.dialogs.showMessageBox(`Importing ${fids.length} document${fids.length > 1 ? 's' : ''}...`);
-    
     // Determine target folder (current notebook or fallback)
     const targetFolderId = await determineTargetFolder(j);
     
@@ -228,18 +226,12 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     }
     
     // Show summary
-    let summary = '';
-    if (imported.length > 0) {
-      summary += `✓ Successfully imported ${imported.length} document${imported.length > 1 ? 's' : ''}:\n`;
-      summary += imported.map(t => `  • ${t}`).join('\n');
-    }
+    const msg = `Imported: ${imported.length} | Skipped: ${skipped.length}`;
     if (skipped.length > 0) {
-      if (summary) summary += '\n\n';
-      summary += `⚠ Skipped ${skipped.length} document${skipped.length > 1 ? 's' : ''}:\n`;
-      summary += skipped.map(t => `  • ${t}`).join('\n');
+      await showWarningDialog(j, 'Import Complete', msg);
+    } else if (imported.length > 0) {
+      await showSuccessDialog(j, 'Import Complete', msg);
     }
-    
-    await j.views.dialogs.showMessageBox(summary || 'Import completed');
   }
   
   return { selected: fids, created, bound };

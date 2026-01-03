@@ -155,10 +155,10 @@ export async function withAuthErrorHandling(
     if (isAuthError(e)) {
       await handleAuthError(j, e, installDir, dataDir);
     } else {
-      // Non-auth error, show normal error message
+      // Non-auth error, log to console only (no popup)
       const raw = (e && e.response && e.response.data) || (e && e.message) || e;
       const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-      await j.views.dialogs.showMessageBox(`${errorPrefix}: ${msg}`);
+      console.error('[gdocs]', `${errorPrefix}:`, msg);
     }
   }
 }
