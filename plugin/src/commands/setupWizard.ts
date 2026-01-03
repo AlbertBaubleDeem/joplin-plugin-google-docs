@@ -413,7 +413,7 @@ async function showCompleteStep(j: any): Promise<void> {
   const html = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box; text-align: center;">
-      <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+      <div style="font-size: 48px; margin-bottom: 16px;">🗹</div>
       
       <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
         Setup Complete!

@@ -69,7 +69,7 @@ export async function showInfoDialog(j: any, options: InfoDialogOptions): Promis
  * Show a success dialog
  */
 export async function showSuccessDialog(j: any, title: string, message: string): Promise<void> {
-  await showInfoDialog(j, { title, message, icon: '✅' });
+  await showInfoDialog(j, { title, message, icon: '🗹' });
 }
 
 /**
