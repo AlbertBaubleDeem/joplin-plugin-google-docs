@@ -24,35 +24,13 @@ fi
 echo "[deploy] Destination: $DEST"
 
 echo "[deploy] Building..."
-npm run build >/dev/null
+npm run dist
 
-echo "[deploy] Syncing files..."
-rm -rf "$DEST/dist"
-mkdir -p "$DEST/dist"
-cp -r dist/* "$DEST/dist/"
-# Ensure runtime index.js that mirrors last working approach
-cp runtime/index.js "$DEST/index.js"
-cp manifest.json "$DEST/manifest.json"
-cp manifest.json "$DEST/dist/manifest.json"
-
-echo "[deploy] Copying runtime deps..."
-# Build production-only node_modules in a temp dir to avoid dev bins (e.g., .bin/tsc)
-TMP_DIR="$(mktemp -d)"
-cp package.json package-lock.json "$TMP_DIR" >/dev/null 2>&1 || true
-pushd "$TMP_DIR" >/dev/null
-npm ci --omit=dev >/dev/null
-popd >/dev/null
-rm -rf "$DEST/node_modules"
-cp -r "$TMP_DIR/node_modules" "$DEST/"
-rm -rf "$TMP_DIR"
-
-# Optional: copy markdown mapping config to enable formatting heuristics (code blocks, etc.)
-mkdir -p "$DEST/config"
-if [ -f "$ROOT_DIR/config/md-mapping.json" ]; then
-  cp "$ROOT_DIR/config/md-mapping.json" "$DEST/config/md-mapping.json"
-elif [ -f "$ROOT_DIR/../google-api-tests/config/md-mapping.json" ]; then
-  cp "$ROOT_DIR/../google-api-tests/config/md-mapping.json" "$DEST/config/md-mapping.json"
-fi
+echo "[deploy] Deploying from publish/..."
+# With webpack build, we deploy the dist/ folder contents (not the .jpl archive)
+rm -rf "$DEST"
+mkdir -p "$DEST"
+cp -r dist/* "$DEST/"
 
 # Copy .env file for OAuth credentials and GCS settings
 if [ -f "$ROOT_DIR/.env" ]; then
@@ -60,6 +38,11 @@ if [ -f "$ROOT_DIR/.env" ]; then
   echo "[deploy] Copied .env to destination"
 fi
 
+# Optional: copy markdown mapping config
+mkdir -p "$DEST/config"
+if [ -f "$ROOT_DIR/config/md-mapping.json" ]; then
+  cp "$ROOT_DIR/config/md-mapping.json" "$DEST/config/md-mapping.json"
+fi
+
 echo "[deploy] Done."
-
-
+echo "[deploy] JPL file available at: $ROOT_DIR/publish/*.jpl"

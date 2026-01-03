@@ -1,26 +1,31 @@
 {
   "name": "joplin-plugin-google-docs",
-  "version": "0.1.0",
-  "description": "Sync Joplin notes with Google Docs/Drive (skeleton)",
-  "main": "dist/index.js",
+  "version": "1.0.0",
+  "description": "Sync Joplin notes with Google Docs",
   "scripts": {
-    "build": "tsc -p .",
-    "postbuild": "node scripts/postbuild.js",
-    "dev": "tsc -w -p .",
+    "dist": "webpack --env joplin-plugin-config=buildMain && webpack --env joplin-plugin-config=buildExtraScripts && webpack --env joplin-plugin-config=createArchive",
+    "prepare": "npm run dist",
+    "updateVersion": "webpack --env joplin-plugin-config=updateVersion",
     "deploy:wsl": "bash scripts/deploy-wsl.sh \"${DEST:-}\""
   },
-  "keywords": [
-    "joplin",
-    "plugin",
-    "google-docs",
-    "google-drive"
-  ],
-  "author": "",
   "license": "MIT",
+  "keywords": [
+    "joplin-plugin"
+  ],
+  "files": [
+    "publish"
+  ],
   "devDependencies": {
-    "@types/marked": "^5.0.2",
-    "@types/node": "^22.5.4",
-    "typescript": "^5.5.4"
+    "@types/node": "^18.7.13",
+    "chalk": "^4.1.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "fs-extra": "^10.1.0",
+    "glob": "^8.0.3",
+    "tar": "^6.1.11",
+    "ts-loader": "^9.3.1",
+    "typescript": "^4.8.2",
+    "webpack": "^5.74.0",
+    "webpack-cli": "^4.10.0"
   },
   "dependencies": {
     "dotenv": "^17.2.2",
