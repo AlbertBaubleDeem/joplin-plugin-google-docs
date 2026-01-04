@@ -120,12 +120,28 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
     };
   }
   
-  // Open browser (cross-platform)
+  // Open browser using child_process (cross-platform)
   try {
-    const { shell } = require('electron');
-    shell.openExternal(authUrl);
-  } catch {
+    const { exec } = require('child_process');
+    const platform = process.platform;
+    
+    let cmd: string;
+    if (platform === 'win32') {
+      cmd = `start "" "${authUrl}"`;
+    } else if (platform === 'darwin') {
+      cmd = `open "${authUrl}"`;
+    } else {
+      cmd = `xdg-open "${authUrl}"`;
+    }
+    
+    exec(cmd, (err: Error | null) => {
+      if (err) {
+        console.error('[gdocs] Failed to open browser:', err);
+      }
+    });
+  } catch (e) {
     // Fallback: show URL for manual copy
+    console.error('[gdocs] Browser open error:', e);
     await showInfoDialog(j, {
       title: 'Open Browser Manually',
       message: 'Could not open browser automatically.',

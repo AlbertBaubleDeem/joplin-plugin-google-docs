@@ -4,6 +4,9 @@
  * Detects authentication errors and prompts user to re-authorize.
  */
 
+import { reauthorize } from '../commands/authorize';
+import { showSuccessDialog, showErrorDialog } from './styledDialogs';
+
 /**
  * Check if an error is an authentication/authorization error
  */
@@ -110,9 +113,6 @@ export async function handleAuthError(
   if (result?.id === 'reauth') {
     // Trigger re-authorization
     try {
-      const path = require('path');
-      const { reauthorize } = require(path.resolve(installDir, 'dist/commands/authorize.js'));
-      const { showSuccessDialog, showErrorDialog } = require(path.resolve(installDir, 'dist/services/styledDialogs.js'));
       const authResult = await reauthorize({ j, installDir, dataDir });
       
       if (authResult.success) {
@@ -123,8 +123,6 @@ export async function handleAuthError(
         return false;
       }
     } catch (e: any) {
-      const pathModule = require('path');
-      const { showErrorDialog } = require(pathModule.resolve(installDir, 'dist/services/styledDialogs.js'));
       await showErrorDialog(j, 'Re-authorization Error', e.message || String(e));
       return false;
     }
@@ -132,34 +130,3 @@ export async function handleAuthError(
   
   return false;
 }
-
-/**
- * Wrapper to execute a command with auth error handling
- * 
- * @param j - Joplin API
- * @param installDir - Plugin install directory
- * @param dataDir - Plugin data directory
- * @param fn - The async function to execute
- * @param errorPrefix - Prefix for error messages (e.g., "Push error")
- */
-export async function withAuthErrorHandling(
-  j: any,
-  installDir: string,
-  dataDir: string,
-  fn: () => Promise<void>,
-  errorPrefix: string = 'Error'
-): Promise<void> {
-  try {
-    await fn();
-  } catch (e: any) {
-    if (isAuthError(e)) {
-      await handleAuthError(j, e, installDir, dataDir);
-    } else {
-      // Non-auth error, log to console only (no popup)
-      const raw = (e && e.response && e.response.data) || (e && e.message) || e;
-      const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
-      console.error('[gdocs]', `${errorPrefix}:`, msg);
-    }
-  }
-}
-

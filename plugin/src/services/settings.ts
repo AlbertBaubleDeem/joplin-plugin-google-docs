@@ -17,6 +17,8 @@ export const SETTING_KEYS = {
   AUTO_SYNC_ENABLED: 'autoSyncEnabled',
   SYNC_FOLDER_ID: 'syncFolderId',
   DEBUG_MODE: 'debugMode',
+  GCS_BUCKET_NAME: 'gcsBucketName',
+  ENABLE_SYNC_ICONS: 'enableSyncIcons',
 } as const;
 
 // Section name for settings
@@ -91,7 +93,28 @@ export function isGCSConfigured(installDir: string): boolean {
 }
 
 /**
- * Get GCS bucket name
+ * Get GCS bucket name from Joplin settings (async version)
+ * Falls back to .env file if not set in settings
+ */
+export async function getGCSBucketNameAsync(joplin: any, installDir: string): Promise<string | undefined> {
+  // First try Joplin settings
+  try {
+    const value = await joplin.settings.value(SETTING_KEYS.GCS_BUCKET_NAME);
+    if (value && typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  } catch {
+    // Settings not available, fall through to .env
+  }
+  
+  // Fallback to .env file
+  const envSettings = loadSettingsFromEnv(installDir);
+  return envSettings.gcsBucketName;
+}
+
+/**
+ * Get GCS bucket name (sync version - only checks .env file)
+ * @deprecated Use getGCSBucketNameAsync when possible
  */
 export function getGCSBucketName(installDir: string): string | undefined {
   const settings = loadSettingsFromEnv(installDir);
@@ -145,6 +168,16 @@ export async function registerSettings(joplin: any): Promise<void> {
       description: 'Google Cloud OAuth Client Secret (stored securely)',
     },
 
+    // Enable sync status icons in note list
+    [SETTING_KEYS.ENABLE_SYNC_ICONS]: {
+      value: true,
+      type: SettingItemType.Bool,
+      section: SETTINGS_SECTION,
+      public: true,
+      label: 'Enable Sync Icons',
+      description: 'Shows Google Docs sync icons in note list. Go to View → Note list style and select "Default with sync status".',
+    },
+
     // Enable/disable automatic sync
     [SETTING_KEYS.AUTO_SYNC_ENABLED]: {
       value: false,
@@ -188,6 +221,16 @@ export async function registerSettings(joplin: any): Promise<void> {
       label: 'Debug Mode',
       description: 'Enable verbose logging for troubleshooting',
     },
+
+    // GCS Bucket Name for image sync
+    [SETTING_KEYS.GCS_BUCKET_NAME]: {
+      value: '',
+      type: SettingItemType.String,
+      section: SETTINGS_SECTION,
+      public: true,
+      label: 'GCS Bucket Name',
+      description: 'Google Cloud Storage bucket for image sync. Leave empty to skip image syncing.',
+    },
   });
 }
 
@@ -204,6 +247,8 @@ export async function getSettings(joplin: any): Promise<{
   autoSyncEnabled: boolean;
   syncFolderId: string;
   debugMode: boolean;
+  gcsBucketName: string;
+  enableSyncIcons: boolean;
 }> {
   const values = await joplin.settings.values([
     SETTING_KEYS.CLIENT_ID,
@@ -212,6 +257,8 @@ export async function getSettings(joplin: any): Promise<{
     SETTING_KEYS.AUTO_SYNC_ENABLED,
     SETTING_KEYS.SYNC_FOLDER_ID,
     SETTING_KEYS.DEBUG_MODE,
+    SETTING_KEYS.GCS_BUCKET_NAME,
+    SETTING_KEYS.ENABLE_SYNC_ICONS,
   ]);
 
   return {
@@ -221,6 +268,8 @@ export async function getSettings(joplin: any): Promise<{
     autoSyncEnabled: values[SETTING_KEYS.AUTO_SYNC_ENABLED] as boolean,
     syncFolderId: values[SETTING_KEYS.SYNC_FOLDER_ID] as string,
     debugMode: values[SETTING_KEYS.DEBUG_MODE] as boolean,
+    gcsBucketName: values[SETTING_KEYS.GCS_BUCKET_NAME] as string,
+    enableSyncIcons: values[SETTING_KEYS.ENABLE_SYNC_ICONS] as boolean,
   };
 }
 

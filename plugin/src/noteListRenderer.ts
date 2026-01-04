@@ -1,4 +1,4 @@
-import { ListRenderer, ItemFlow, OnRenderNoteHandler } from './types/noteListTypes';
+import { ListRenderer, ItemFlow, OnRenderNoteHandler } from 'api/noteListType';
 import { getBinding } from './mapping';
 
 /**

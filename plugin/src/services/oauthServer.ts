@@ -13,12 +13,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as url from 'url';
 
-// OAuth scopes required by the plugin (minimum required)
+// OAuth scopes required by the plugin
 // - drive.file: Only files created by this app or explicitly opened by user
 // - documents: Read/write access to Google Docs
+// - devstorage.full_control: Upload images to GCS and set public ACLs for embedding in docs
 const OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/devstorage.full_control',
 ];
 
 // Default callback port
@@ -185,27 +187,57 @@ export function startOAuthServer(
 }
 
 /**
- * Exchange authorization code for tokens
+ * Exchange authorization code for tokens using direct HTTP POST
  */
 async function exchangeCodeForTokens(
   config: OAuthConfig,
   code: string,
   redirectUri: string,
-  installDir: string
+  _installDir: string
 ): Promise<any> {
-  // Load googleapis from the plugin's node_modules
-  const googleapisPath = path.resolve(installDir, 'node_modules/googleapis');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { google } = require(googleapisPath);
+  const https = require('https');
   
-  const oauth2Client = new google.auth.OAuth2(
-    config.clientId,
-    config.clientSecret,
-    redirectUri
-  );
-  
-  const { tokens } = await oauth2Client.getToken(code);
-  return tokens;
+  return new Promise((resolve, reject) => {
+    const postData = new URLSearchParams({
+      code,
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    }).toString();
+    
+    const options = {
+      hostname: 'oauth2.googleapis.com',
+      port: 443,
+      path: '/token',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    };
+    
+    const req = https.request(options, (res: any) => {
+      let data = '';
+      res.on('data', (chunk: string) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const tokens = JSON.parse(data);
+          if (tokens.error) {
+            reject(new Error(tokens.error_description || tokens.error));
+          } else {
+            resolve(tokens);
+          }
+        } catch (e) {
+          reject(new Error(`Failed to parse token response: ${data}`));
+        }
+      });
+    });
+    
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
 }
 
 /**

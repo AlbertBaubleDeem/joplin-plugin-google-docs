@@ -26,11 +26,16 @@ echo "[deploy] Destination: $DEST"
 echo "[deploy] Building..."
 npm run dist
 
-echo "[deploy] Deploying from publish/..."
-# With webpack build, we deploy the dist/ folder contents (not the .jpl archive)
+echo "[deploy] Deploying from dist/..."
 rm -rf "$DEST"
 mkdir -p "$DEST"
 cp -r dist/* "$DEST/"
+
+# Copy entire node_modules for runtime dependencies (googleapis has ~92 transitive deps)
+if [ -d "$ROOT_DIR/node_modules" ]; then
+  echo "[deploy] Copying node_modules for runtime dependencies..."
+  cp -r "$ROOT_DIR/node_modules" "$DEST/"
+fi
 
 # Copy .env file for OAuth credentials and GCS settings
 if [ -f "$ROOT_DIR/.env" ]; then
