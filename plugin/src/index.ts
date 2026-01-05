@@ -40,7 +40,13 @@ async function handleError(e: unknown, errorPrefix: string): Promise<void> {
   } else {
     const err = e as { response?: { data?: unknown }; message?: string };
     const raw = err?.response?.data || err?.message || e;
-    const msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+    let msg = (typeof raw === 'string') ? raw : JSON.stringify(raw, null, 2);
+    
+    // Check for API compatibility issues (outdated Joplin)
+    if (msg.includes('does not exist in "joplin.')) {
+      msg += '\n\nThis may be caused by an outdated Joplin version. Please update Joplin to the latest version.';
+    }
+    
     console.error('[gdocs]', errorPrefix + ':', msg);
     // Show error dialog so user sees the failure
     await dialogs.showErrorDialog(joplin, errorPrefix, msg);

@@ -123,7 +123,12 @@ export async function handleAuthError(
         return false;
       }
     } catch (e: any) {
-      await showErrorDialog(j, 'Re-authorization Error', e.message || String(e));
+      let msg = e.message || String(e);
+      // Check for API compatibility issues (outdated Joplin)
+      if (msg.includes('does not exist in "joplin.')) {
+        msg += '\n\nThis may be caused by an outdated Joplin version. Please update Joplin to the latest version.';
+      }
+      await showErrorDialog(j, 'Re-authorization Error', msg);
       return false;
     }
   }
