@@ -3,24 +3,31 @@
  * 
  * This module provides a single point for creating authenticated API clients,
  * eliminating the repeated auth + client creation pattern across commands.
+ * 
+ * Uses static imports so webpack can bundle the dependencies directly.
  */
 
-import { getAuthFromInstallDir } from './auth';
+import { getAuthClient } from './auth';
 import { GoogleDocsProvider } from '../providers/GoogleDocsProvider';
+import { docs_v1 } from 'googleapis/build/src/apis/docs';
+import { drive_v3 } from 'googleapis/build/src/apis/drive';
+import { storage_v1 } from 'googleapis/build/src/apis/storage';
 
 /**
  * Context object containing all authenticated API clients and paths
  * needed for sync operations.
  */
 export interface SyncContext {
-  /** The googleapis module */
-  google: any;
   /** OAuth2 auth client */
   auth: any;
   /** Pre-created Google Drive client (v3) */
   drive: any;
   /** Pre-created Google Docs client (v1) */
   docs: any;
+  /** Google API factory for creating additional clients (e.g., storage) */
+  google: {
+    storage: (opts: { version: string; auth: any }) => any;
+  };
   /** Document provider for OOP access to document operations */
   provider: GoogleDocsProvider;
   /** Path to the plugin installation directory */
@@ -47,23 +54,30 @@ export async function createSyncContext(
   installDir: string,
   dataDir: string
 ): Promise<SyncContext> {
-  const { google, auth } = await getAuthFromInstallDir(installDir);
+  const auth = await getAuthClient(installDir);
   
-  const drive = google.drive({ version: 'v3', auth });
-  const docs = google.docs({ version: 'v1', auth });
+  // Create API clients using static imports
+  const drive = new drive_v3.Drive({ auth });
+  const docs = new docs_v1.Docs({ auth });
+  
+  // Create a google factory object for additional APIs (e.g., storage)
+  const google = {
+    storage: (opts: { version: string; auth: any }) => {
+      return new storage_v1.Storage({ auth: opts.auth });
+    },
+  };
   
   // Create a partial context for the provider (it needs drive/docs)
-  const partialCtx = { google, auth, drive, docs, installDir, dataDir };
+  const partialCtx = { auth, drive, docs, google, installDir, dataDir };
   const provider = new GoogleDocsProvider(partialCtx as SyncContext);
   
   return {
-    google,
     auth,
     drive,
     docs,
+    google,
     provider,
     installDir,
     dataDir,
   };
 }
-

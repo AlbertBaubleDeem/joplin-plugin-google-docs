@@ -46,9 +46,14 @@ const { builtinModules } = require('node:module');
 // node modules. Set these to false to prevent Webpack from warning about not polyfilling these modules.
 // We don't need to polyfill because the plugins run in Electron's Node environment.
 const moduleFallback = {};
+const nodeProtocolAliases = {};
 for (const moduleName of builtinModules) {
 	moduleFallback[moduleName] = false;
+	// Map node: protocol URIs to actual module names
+	nodeProtocolAliases[`node:${moduleName}`] = moduleName;
 }
+// Also add common sub-modules
+nodeProtocolAliases['node:stream/web'] = 'stream';
 
 const getPackageJson = () => {
 	return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -164,6 +169,10 @@ function createPluginInfo(manifestPath, destPath, jplFilePath) {
 function onBuildCompleted() {
 	try {
 		fs.removeSync(path.resolve(publishDir, 'index.js'));
+		
+		// All dependencies are now bundled via static imports - no node_modules copying needed
+		console.info(chalk.cyan('All dependencies bundled via webpack'));
+		
 		createPluginArchive(distDir, pluginArchiveFilePath);
 		createPluginInfo(manifestPath, pluginInfoFilePath, pluginArchiveFilePath);
 		validatePackageJson();
@@ -201,7 +210,20 @@ const pluginConfig = { ...baseConfig, entry: './src/index.ts',
 	output: {
 		filename: 'index.js',
 		path: distDir,
+		libraryTarget: 'commonjs2',
 	},
+	// Only externalize node: protocol modules - googleapis is loaded dynamically at runtime
+	externals: [
+		// Handle node: protocol URIs
+		function({ request }, callback) {
+			if (request.startsWith('node:')) {
+				// Convert node:fs to require('fs')
+				const moduleName = request.slice(5); // Remove 'node:' prefix
+				return callback(null, 'commonjs ' + moduleName);
+			}
+			callback();
+		},
+	],
 	plugins: [
 		new CopyPlugin({
 			patterns: [
@@ -266,12 +288,30 @@ const createArchiveConfig = {
 	stats: 'errors-only',
 	entry: './dist/index.js',
 	resolve: {
+		alias: nodeProtocolAliases,
 		fallback: moduleFallback,
 	},
 	output: {
 		filename: 'index.js',
 		path: publishDir,
+		libraryTarget: 'commonjs2',
 	},
+	// Externalize node: protocol modules and googleapis
+	// Keep the same require paths that pluginConfig outputs - don't try to resolve
+	externals: [
+		// Handle node: protocol URIs
+		function({ request }, callback) {
+			if (request.startsWith('node:')) {
+				const moduleName = request.slice(5);
+				return callback(null, 'commonjs ' + moduleName);
+			}
+			// Pass through the relative ./node_modules/ requires from pluginConfig output
+			if (request.startsWith('./node_modules/')) {
+				return callback(null, 'commonjs ' + request);
+			}
+			callback();
+		},
+	],
 	plugins: [{
 		apply(compiler) {
 			compiler.hooks.done.tap('archiveOnBuildListener', onBuildCompleted);

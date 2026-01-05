@@ -6,12 +6,15 @@
  * 2. Generating the Google authorization URL
  * 3. Exchanging authorization codes for tokens
  * 4. Saving tokens to the plugin directory
+ * 
+ * Uses static imports so webpack can bundle the dependencies directly.
  */
 
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as url from 'url';
+import { OAuth2Client } from 'google-auth-library';
 
 // OAuth scopes required by the plugin
 // - drive.file: Only files created by this app or explicitly opened by user
@@ -46,16 +49,13 @@ export function generateAuthUrl(config: OAuthConfig): string {
   const port = config.port || DEFAULT_PORT;
   const redirectUri = `http://localhost:${port}${REDIRECT_PATH}`;
   
-  const params = new URLSearchParams({
-    client_id: config.clientId,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: OAUTH_SCOPES.join(' '),
+  const oauth2Client = new OAuth2Client(config.clientId, config.clientSecret, redirectUri);
+  
+  return oauth2Client.generateAuthUrl({
     access_type: 'offline',
+    scope: OAUTH_SCOPES,
     prompt: 'consent',
   });
-  
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
 /**
@@ -74,6 +74,9 @@ export function startOAuthServer(
   return new Promise((resolve) => {
     const port = config.port || DEFAULT_PORT;
     const redirectUri = `http://localhost:${port}${REDIRECT_PATH}`;
+    
+    // Create OAuth2 client for token exchange
+    const oauth2Client = new OAuth2Client(config.clientId, config.clientSecret, redirectUri);
     
     let server: http.Server | null = null;
     let timeoutId: NodeJS.Timeout | null = null;
@@ -135,9 +138,9 @@ export function startOAuthServer(
         return;
       }
       
-      // Exchange code for tokens
+      // Exchange code for tokens using OAuth2Client
       try {
-        const tokens = await exchangeCodeForTokens(config, code, redirectUri, installDir);
+        const { tokens } = await oauth2Client.getToken(code);
         
         // Save tokens
         const tokenPath = path.resolve(installDir, '.token.json');
@@ -187,60 +190,6 @@ export function startOAuthServer(
 }
 
 /**
- * Exchange authorization code for tokens using direct HTTP POST
- */
-async function exchangeCodeForTokens(
-  config: OAuthConfig,
-  code: string,
-  redirectUri: string,
-  _installDir: string
-): Promise<any> {
-  const https = require('https');
-  
-  return new Promise((resolve, reject) => {
-    const postData = new URLSearchParams({
-      code,
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      redirect_uri: redirectUri,
-      grant_type: 'authorization_code',
-    }).toString();
-    
-    const options = {
-      hostname: 'oauth2.googleapis.com',
-      port: 443,
-      path: '/token',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(postData),
-      },
-    };
-    
-    const req = https.request(options, (res: any) => {
-      let data = '';
-      res.on('data', (chunk: string) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const tokens = JSON.parse(data);
-          if (tokens.error) {
-            reject(new Error(tokens.error_description || tokens.error));
-          } else {
-            resolve(tokens);
-          }
-        } catch (e) {
-          reject(new Error(`Failed to parse token response: ${data}`));
-        }
-      });
-    });
-    
-    req.on('error', reject);
-    req.write(postData);
-    req.end();
-  });
-}
-
-/**
  * Check if tokens exist and are valid
  */
 export function hasValidTokens(installDir: string): boolean {
@@ -269,4 +218,3 @@ export function clearTokens(installDir: string): void {
     fs.unlinkSync(tokenPath);
   }
 }
-

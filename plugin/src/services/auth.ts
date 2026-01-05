@@ -1,11 +1,17 @@
+/**
+ * Authentication module using static imports
+ * 
+ * Uses static imports so webpack can bundle the dependencies directly.
+ */
+
 import * as fs from 'fs';
 import * as path from 'path';
+import { OAuth2Client } from 'google-auth-library';
 
-// Declare __non_webpack_require__ for TypeScript
-declare const __non_webpack_require__: NodeRequire;
-
-export async function getAuthFromInstallDir(installDir: string): Promise<{ google: any; auth: any }>{
-  // Load env from installDir/.env if present
+/**
+ * Load environment variables from .env file
+ */
+function loadEnvFromFile(installDir: string): void {
   const envPath = path.resolve(installDir, '.env');
   if (fs.existsSync(envPath)) {
     const env = fs.readFileSync(envPath, 'utf8');
@@ -14,23 +20,48 @@ export async function getAuthFromInstallDir(installDir: string): Promise<{ googl
       if (m) (process as any).env[m[1]] = m[2];
     }
   }
-  // OAuth tokens
+}
+
+/**
+ * Get OAuth2 client credentials from environment
+ */
+export function getOAuthCredentials(): { clientId: string; clientSecret: string; redirectUri: string } {
+  return {
+    clientId: (process as any).env.GOOGLE_CLIENT_ID || '',
+    clientSecret: (process as any).env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: (process as any).env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth2callback',
+  };
+}
+
+/**
+ * Create an authenticated OAuth2Client from saved tokens
+ * 
+ * @param installDir - Path to the plugin installation directory
+ * @returns Authenticated OAuth2Client ready for API calls
+ */
+export async function getAuthClient(installDir: string): Promise<OAuth2Client> {
+  // Load env from installDir/.env if present
+  loadEnvFromFile(installDir);
+  
+  const { clientId, clientSecret, redirectUri } = getOAuthCredentials();
+  
+  // Load OAuth tokens
   const tokenPath = path.resolve(installDir, '.token.json');
   const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
   
-  // Use __non_webpack_require__ to bypass webpack bundling
-  // This tells webpack to leave this require alone and let Node.js handle it at runtime
-  const nodeModulesPath = path.resolve(installDir, 'node_modules');
-  const googleapisPath = path.join(nodeModulesPath, 'googleapis');
-  
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { google } = __non_webpack_require__(googleapisPath);
-  
-  const auth = new google.auth.OAuth2(
-    (process as any).env.GOOGLE_CLIENT_ID,
-    (process as any).env.GOOGLE_CLIENT_SECRET,
-    (process as any).env.GOOGLE_REDIRECT_URI,
-  );
+  // Create OAuth2 client with credentials
+  const auth = new OAuth2Client(clientId, clientSecret, redirectUri);
   auth.setCredentials(tokens);
-  return { google, auth };
+  
+  return auth;
+}
+
+/**
+ * @deprecated Use getAuthClient instead. This exists for backward compatibility.
+ */
+export async function getAuthFromInstallDir(installDir: string): Promise<{ google: any; auth: OAuth2Client }> {
+  const auth = await getAuthClient(installDir);
+  // Return a minimal google object for backward compatibility during migration
+  // The google object is no longer needed - use the specific API imports directly
+  return { google: null, auth };
 }
