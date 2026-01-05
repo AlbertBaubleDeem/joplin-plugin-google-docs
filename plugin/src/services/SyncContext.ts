@@ -41,18 +41,20 @@ export interface SyncContext {
  * 
  * @param installDir - Path to the plugin installation directory
  * @param dataDir - Path to the plugin data directory
+ * @param joplin - Optional Joplin API object for settings access
  * @returns Promise resolving to a SyncContext with ready-to-use API clients
  * 
  * @example
  * ```typescript
- * const ctx = await createSyncContext(installDir, dataDir);
+ * const ctx = await createSyncContext(installDir, dataDir, joplin);
  * const files = await ctx.drive.files.list({ ... });
  * const doc = await ctx.docs.documents.get({ ... });
  * ```
  */
 export async function createSyncContext(
   installDir: string,
-  dataDir: string
+  dataDir: string,
+  joplin?: any
 ): Promise<SyncContext> {
   const auth = await getAuthClient(installDir);
   
@@ -69,7 +71,7 @@ export async function createSyncContext(
   
   // Create a partial context for the provider (it needs drive/docs)
   const partialCtx = { auth, drive, docs, google, installDir, dataDir };
-  const provider = new GoogleDocsProvider(partialCtx as SyncContext);
+  const provider = new GoogleDocsProvider(partialCtx as SyncContext, joplin);
   
   return {
     auth,

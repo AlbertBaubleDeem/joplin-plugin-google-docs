@@ -50,7 +50,7 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
   const { j, installDir, dataDir } = args;
 
   // Create sync context with authenticated API clients
-  const ctx = await createSyncContext(installDir, dataDir);
+  const ctx = await createSyncContext(installDir, dataDir, j);
 
   // Get the folder to export
   let folderId = args.folderId;

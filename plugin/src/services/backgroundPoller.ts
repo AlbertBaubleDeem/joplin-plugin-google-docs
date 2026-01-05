@@ -54,7 +54,7 @@ export async function startBackgroundPoller(config: PollerConfig): Promise<void>
     async function runPoller() {
       try {
         console.log('[gdocs] Background sync running...');
-        const ctx = await createSyncContext(installDir, dataDir);
+        const ctx = await createSyncContext(installDir, dataDir, j);
         const poller = new MinimalPoller(ctx);
         await poller.initIfNeeded();
         const syncRes = await poller.syncOnce(j);

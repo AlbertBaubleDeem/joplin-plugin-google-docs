@@ -17,7 +17,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
   const { j, installDir, dataDir } = params;
   
   // Use SyncContext for authenticated API access
-  const ctx = await createSyncContext(installDir, dataDir);
+  const ctx = await createSyncContext(installDir, dataDir, j);
   const { drive } = ctx;
 
   async function listDocs(query: string): Promise<Array<{ id?: string; name?: string; modifiedTime?: string }>> {

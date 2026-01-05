@@ -38,16 +38,19 @@ export class GoogleDocsProvider implements IDocumentProvider {
   private drive: any;
   private docs: any;
   private dataDir: string;
+  private joplin: any;
 
   /**
    * Creates a new GoogleDocsProvider.
    * 
    * @param ctx - SyncContext with authenticated API clients
+   * @param joplin - Optional Joplin API object for settings access
    */
-  constructor(ctx: SyncContext) {
+  constructor(ctx: SyncContext, joplin?: any) {
     this.drive = ctx.drive;
     this.docs = ctx.docs;
     this.dataDir = ctx.dataDir;
+    this.joplin = joplin;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -206,7 +209,7 @@ export class GoogleDocsProvider implements IDocumentProvider {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async ensureSyncFolder(): Promise<string> {
-    return ensureSyncFolder(this.drive, this.dataDir);
+    return ensureSyncFolder(this.drive, this.dataDir, { joplin: this.joplin });
   }
 
   async createFolder(name: string, parentId?: string): Promise<FolderMetadata> {

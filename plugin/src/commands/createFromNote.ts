@@ -48,7 +48,7 @@ export async function createFromNote(params: Params): Promise<CreateResult> {
   const { j, installDir, dataDir } = params;
 
   // Create sync context with authenticated API clients
-  const ctx = await createSyncContext(installDir, dataDir);
+  const ctx = await createSyncContext(installDir, dataDir, j);
 
   // Ensure sync folder exists via provider
   const syncFolderId = await ctx.provider.ensureSyncFolder();

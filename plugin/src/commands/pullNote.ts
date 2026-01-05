@@ -52,7 +52,7 @@ export async function pullNote(params: Params): Promise<PullResult> {
   const { j, installDir, dataDir } = params;
 
   // Create sync context with authenticated API clients (or use provided one)
-  const ctx = params.ctx || await createSyncContext(installDir, dataDir);
+  const ctx = params.ctx || await createSyncContext(installDir, dataDir, j);
 
   // Determine the note ID using NoteOperations
   const noteId = params.noteId || await getSelectedNoteId(j);

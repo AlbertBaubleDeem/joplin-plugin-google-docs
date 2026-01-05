@@ -7,7 +7,7 @@ import {
 import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converters';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
 import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
-import { getGCSBucketName } from '../services/settings';
+import { getGCSBucketNameAsync } from '../services/settings';
 import {
   processImages,
   buildImageInsertRequests,
@@ -112,7 +112,7 @@ async function executePush(
   }
 
   // Check if we have images to process and GCS is configured
-  const gcsBucketName = getGCSBucketName(installDir);
+  const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
   debugLog( `GCS bucket: ${gcsBucketName || 'NOT CONFIGURED'}`);
   console.log(`[pushNote] GCS bucket configured: ${gcsBucketName || 'NOT CONFIGURED'}`);
   
@@ -292,7 +292,7 @@ export async function pushNote(params: Params): Promise<PushResult> {
   
   // Create sync context with authenticated API clients (or use provided one)
   debugLog('Creating sync context...');
-  const ctx = params.ctx || await createSyncContext(installDir, dataDir);
+  const ctx = params.ctx || await createSyncContext(installDir, dataDir, j);
   debugLog('Sync context created');
 
   // Determine the note ID using NoteOperations

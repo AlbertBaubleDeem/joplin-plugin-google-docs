@@ -11,6 +11,7 @@ import {
   APP_PROPERTY_PLUGIN_ID,
   PLUGIN_ID,
 } from '../mapping';
+import { SETTING_KEYS } from './settings';
 
 /** Default name for the sync folder in Google Drive */
 export const SYNC_FOLDER_NAME = 'Joplin Google Docs Sync';
@@ -23,6 +24,8 @@ export interface EnsureSyncFolderOptions {
   folderId?: string;
   /** Custom folder name (defaults to SYNC_FOLDER_NAME) */
   folderName?: string;
+  /** Joplin API object for checking settings (optional but recommended) */
+  joplin?: any;
 }
 
 /**
@@ -30,19 +33,20 @@ export interface EnsureSyncFolderOptions {
  * 
  * Resolution order:
  * 1. Use provided folderId if specified
- * 2. Check local mapping cache for syncFolderId
- * 3. Search Drive for folder with pluginId appProperty
- * 4. Create new folder if not found
+ * 2. Check Joplin settings (SETTING_KEYS.SYNC_FOLDER_ID)
+ * 3. Check local mapping cache for syncFolderId
+ * 4. Search Drive for folder with pluginId appProperty
+ * 5. Create new folder if not found
  * 
  * @param drive - Google Drive API client
  * @param dataDir - Path to plugin data directory (for mapping cache)
- * @param options - Optional configuration
+ * @param options - Optional configuration (pass joplin for settings check)
  * @returns Promise resolving to the sync folder ID
  * 
  * @example
  * ```typescript
  * const ctx = await createSyncContext(installDir, dataDir);
- * const syncFolderId = await ensureSyncFolder(ctx.drive, dataDir);
+ * const syncFolderId = await ensureSyncFolder(ctx.drive, dataDir, { joplin });
  * ```
  */
 export async function ensureSyncFolder(
@@ -59,13 +63,28 @@ export async function ensureSyncFolder(
     return options.folderId;
   }
 
-  // 2. Check local mapping cache
+  // 2. Check Joplin settings for sync folder ID
+  if (options.joplin) {
+    try {
+      const settingsFolderId = await options.joplin.settings.value(SETTING_KEYS.SYNC_FOLDER_ID);
+      if (settingsFolderId && typeof settingsFolderId === 'string' && settingsFolderId.trim()) {
+        const folderId = settingsFolderId.trim();
+        // Cache it locally for future use
+        setSyncFolderId(dataDir, folderId);
+        return folderId;
+      }
+    } catch {
+      // Settings not available, fall through to cache
+    }
+  }
+
+  // 3. Check local mapping cache
   const cached = loadMapping(dataDir).syncFolderId;
   if (cached) {
     return cached;
   }
 
-  // 3. Search Drive for folder with our plugin marker
+  // 4. Search Drive for folder with our plugin marker
   const { data } = await drive.files.list({
     q: `mimeType='application/vnd.google-apps.folder' and appProperties has { key='${APP_PROPERTY_PLUGIN_ID}' and value='${PLUGIN_ID}' } and trashed=false`,
     fields: 'files(id,name)',
@@ -81,7 +100,7 @@ export async function ensureSyncFolder(
     return folderId;
   }
 
-  // 4. Create new folder
+  // 5. Create new folder
   const created = await drive.files.create({
     requestBody: {
       name: folderName,

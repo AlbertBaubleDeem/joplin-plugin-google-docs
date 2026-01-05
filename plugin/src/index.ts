@@ -58,7 +58,7 @@ async function handleError(e: unknown, errorPrefix: string): Promise<void> {
 async function pollOnce(): Promise<void> {
   try {
     const { installDir, dataDir } = await getDirs();
-    const ctx = await createSyncContext(installDir, dataDir);
+    const ctx = await createSyncContext(installDir, dataDir, joplin);
     const poller = new MinimalPoller(ctx);
     
     const maybe = await poller.initIfNeeded();
@@ -213,20 +213,26 @@ joplin.plugins.register({
         await joplin.views.noteList.registerRenderer(renderer);
         console.log('[gdocs] Registered note list renderer:', RENDERER_ID);
         
-        // Check if renderer is selected (inform user if not)
-        try {
-          const currentRenderer = await joplin.settings.globalValue('notes.listRendererId');
-          if (!currentRenderer || !currentRenderer.includes('gdocs')) {
-            // Show guidance dialog on how to select the renderer
-            await dialogs.showInfoDialog(joplin, {
-              title: 'Enable Sync Icons',
-              message: 'Sync icons are enabled! One more step needed:',
-              details: 'Go to View → Note list style and select "Default with sync status" to see Google Docs icons on synced notes.',
-              icon: '📝',
-            });
+        // Only show the hint dialog once (check if already shown)
+        const hintShown = await joplin.settings.value('syncIconsHintShown');
+        if (!hintShown) {
+          // Check if renderer is selected (inform user if not)
+          try {
+            const currentRenderer = await joplin.settings.globalValue('notes.listRendererId');
+            if (!currentRenderer || !currentRenderer.includes('gdocs')) {
+              // Show guidance dialog on how to select the renderer
+              await dialogs.showInfoDialog(joplin, {
+                title: 'Enable Sync Icons',
+                message: 'Sync icons are enabled! One more step needed:',
+                details: 'Go to View → Note list style and select "Default with sync status" to see Google Docs icons on synced notes.',
+                icon: '📝',
+              });
+            }
+          } catch {
+            // Ignore - global value may not be accessible
           }
-        } catch {
-          // Ignore - global value may not be accessible
+          // Mark as shown so it doesn't appear again
+          await joplin.settings.setValue('syncIconsHintShown', true);
         }
       } else {
         console.log('[gdocs] Sync icons disabled - skipping renderer registration');
@@ -264,13 +270,19 @@ joplin.plugins.register({
     await joplin.commands.register({ name: 'gdocsAuthorize', label: 'Google Docs Sync: 10 Authorize', execute: authorizeCmd });
     await joplin.commands.register({ name: 'gdocsToggleDebug', label: 'Google Docs Sync: 11 Toggle Debug', execute: toggleDebugCmd });
     
-    // Check if setup is needed
+    // Auto-run setup wizard on first install
     try {
-      if (isSetupNeeded(installDir)) {
-        console.log('[gdocs] Setup needed - run "Setup Wizard" command to configure');
+      const wizardCompleted = await joplin.settings.value('wizardCompleted');
+      if (!wizardCompleted && isSetupNeeded(installDir)) {
+        console.log('[gdocs] First run detected - launching setup wizard');
+        const result = await runSetupWizard({ j: joplin, installDir, dataDir });
+        if (result.completed) {
+          // Mark wizard as completed so it won't run again
+          await joplin.settings.setValue('wizardCompleted', true);
+        }
       }
     } catch (e) {
-      console.warn('[gdocs] Could not check setup status:', e);
+      console.warn('[gdocs] Could not check/run setup wizard:', e);
     }
     
     // Context menus
