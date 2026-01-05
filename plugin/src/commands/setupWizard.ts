@@ -16,6 +16,8 @@ import { SETTING_KEYS, getSettings } from '../services/settings';
 import { hasValidTokens } from '../services/oauthServer';
 import { authorize } from './authorize';
 import { showErrorDialog } from '../services/styledDialogs';
+import { createSyncContext } from '../services/SyncContext';
+import { ensureSyncFolder } from '../services/SyncFolderManager';
 
 export interface SetupWizardParams {
   j: any;
@@ -127,7 +129,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
       }
       
       case 'syncFolder': {
-        const result = await showSyncFolderStep(j);
+        const result = await showSyncFolderStep(j, installDir, dataDir);
         if (result === 'back') {
           currentStep = 'authorize';
         } else if (result === 'cancel') {
@@ -334,7 +336,7 @@ async function showAuthorizeStep(
 /**
  * Step 5: Sync Folder Configuration
  */
-async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back' | 'cancel'> {
+async function showSyncFolderStep(j: any, installDir: string, dataDir: string): Promise<{ folderId: string } | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-folder-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
   const html = `
@@ -373,12 +375,12 @@ async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back'
         
         <div style="margin-top: 12px;">
           <label style="display: block; margin-bottom: 4px; font-weight: 500; color: var(--joplin-color);">
-            Folder ID (optional)
+            Folder ID (for existing folder)
           </label>
           <input 
             type="text" 
             name="folderId" 
-            placeholder="Leave empty for auto-create"
+            placeholder="Only change to use a different existing folder"
             style="width: 100%; padding: 8px; border: 1px solid var(--joplin-divider-color); border-radius: 4px; background: var(--joplin-background-color); color: var(--joplin-color); box-sizing: border-box;"
           />
         </div>
@@ -399,9 +401,21 @@ async function showSyncFolderStep(j: any): Promise<{ folderId: string } | 'back'
   if (result?.id === 'cancel' || !result) return 'cancel';
   
   const fd = result.formData?.f || {};
-  const folderId = fd.folderOption === 'custom' ? (fd.folderId || '').trim() : '';
   
-  return { folderId };
+  // If custom folder specified, use that
+  if (fd.folderOption === 'custom' && fd.folderId?.trim()) {
+    return { folderId: fd.folderId.trim() };
+  }
+  
+  // Auto-create: call ensureSyncFolder to create/find the folder
+  try {
+    const ctx = await createSyncContext(installDir, dataDir, j);
+    const folderId = await ensureSyncFolder(ctx.drive, dataDir, { joplin: j });
+    return { folderId };
+  } catch (error: any) {
+    await showErrorDialog(j, 'Folder Setup Failed', error.message || 'Could not create sync folder');
+    return 'cancel';
+  }
 }
 
 /**

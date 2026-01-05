@@ -210,7 +210,7 @@ export async function registerSettings(joplin: any): Promise<void> {
       section: SETTINGS_SECTION,
       public: true,
       label: 'Sync Folder ID',
-      description: 'Google Drive folder ID for synced documents (leave empty to auto-create)',
+      description: 'Google Drive folder ID for synced documents',
     },
 
     // Debug mode
@@ -226,7 +226,7 @@ export async function registerSettings(joplin: any): Promise<void> {
 
     // GCS Bucket Name for image sync
     [SETTING_KEYS.GCS_BUCKET_NAME]: {
-      value: '',
+      value: 'images-to-docs',
       type: SettingItemType.String,
       section: SETTINGS_SECTION,
       public: true,
