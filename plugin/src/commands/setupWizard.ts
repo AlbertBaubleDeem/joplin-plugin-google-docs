@@ -171,7 +171,7 @@ async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
       </p>
       
       <div style="background: var(--joplin-background-color3); padding: 16px; border-radius: 8px; margin: 16px 0;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: center;">What you'll be able to do:</h3>
+        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: left;">What you'll be able to do:</h3>
         <ul style="margin: 0; padding-left: 20px; color: var(--joplin-color);">
           <li>Push Joplin notes to Google Docs</li>
           <li>Pull changes from Google Docs back to Joplin</li>
@@ -424,7 +424,7 @@ async function showCompleteStep(j: any): Promise<void> {
       </p>
       
       <div style="background: var(--joplin-background-color3); padding: 16px; border-radius: 8px; margin: 16px 0; text-align: left;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: center;">Quick Start:</h3>
+        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: left;">Quick Start:</h3>
         <ul style="margin: 0; padding-left: 20px; color: var(--joplin-color); font-size: 13px;">
           <li>Select a note and run <strong>Push (update Doc)</strong></li>
           <li>Right-click a notebook to <strong>Export to Drive</strong></li>
@@ -433,7 +433,7 @@ async function showCompleteStep(j: any): Promise<void> {
       </div>
       
       <div style="background: var(--joplin-background-color3); padding: 16px; border-radius: 8px; margin: 16px 0; text-align: left;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: center;">📝 Enable Sync Icons:</h3>
+        <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: left;">📝 Enable Sync Icons:</h3>
         <p style="margin: 0; color: var(--joplin-color); font-size: 13px;">
           To see Google Docs icons on synced notes, go to:<br/>
           <strong>View → Note list style → "Default with sync status"</strong>

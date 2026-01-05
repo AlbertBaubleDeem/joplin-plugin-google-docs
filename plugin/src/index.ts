@@ -205,54 +205,15 @@ joplin.plugins.register({
     // Register note list renderer for sync status icons (only if enabled in settings)
     const RENDERER_ID = 'io.github.albertbaubledeem.joplin.google-docs:gdocs-sync-renderer';
     try {
-      // Check if sync icons are enabled
       const enableSyncIcons = await joplin.settings.value('enableSyncIcons');
       
       if (enableSyncIcons) {
         const renderer = createSyncStatusRenderer(dataDir);
         await joplin.views.noteList.registerRenderer(renderer);
         console.log('[gdocs] Registered note list renderer:', RENDERER_ID);
-        
-        // Only show the hint dialog once (check if already shown)
-        const hintShown = await joplin.settings.value('syncIconsHintShown');
-        if (!hintShown) {
-          // Check if renderer is selected (inform user if not)
-          try {
-            const currentRenderer = await joplin.settings.globalValue('notes.listRendererId');
-            if (!currentRenderer || !currentRenderer.includes('gdocs')) {
-              // Show guidance dialog on how to select the renderer
-              await dialogs.showInfoDialog(joplin, {
-                title: 'Enable Sync Icons',
-                message: 'Sync icons are enabled! One more step needed:',
-                details: 'Go to View → Note list style and select "Default with sync status" to see Google Docs icons on synced notes.',
-                icon: '📝',
-              });
-            }
-          } catch {
-            // Ignore - global value may not be accessible
-          }
-          // Mark as shown so it doesn't appear again
-          await joplin.settings.setValue('syncIconsHintShown', true);
-        }
       } else {
         console.log('[gdocs] Sync icons disabled - skipping renderer registration');
       }
-      
-      // Listen for setting changes to show guidance when enabled
-      await joplin.settings.onChange(async (event: { keys: string[] }) => {
-        if (event.keys.includes('enableSyncIcons')) {
-          const newValue = await joplin.settings.value('enableSyncIcons');
-          if (newValue) {
-            // User just enabled sync icons - show guidance
-            await dialogs.showInfoDialog(joplin, {
-              title: 'Sync Icons Enabled',
-              message: 'Please restart Joplin to register the custom renderer.',
-              details: 'After restart, go to View → Note list style and select "Default with sync status".',
-              icon: '🔄',
-            });
-          }
-        }
-      });
     } catch (e) {
       console.warn('[gdocs] Failed to register note list renderer:', e);
     }
@@ -279,8 +240,6 @@ joplin.plugins.register({
         if (result.completed) {
           // Mark wizard as completed so it won't run again
           await joplin.settings.setValue('wizardCompleted', true);
-          // Also mark sync icons hint as shown (wizard includes this info)
-          await joplin.settings.setValue('syncIconsHintShown', true);
         }
       }
     } catch (e) {

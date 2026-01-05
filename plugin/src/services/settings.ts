@@ -20,7 +20,6 @@ export const SETTING_KEYS = {
   GCS_BUCKET_NAME: 'gcsBucketName',
   ENABLE_SYNC_ICONS: 'enableSyncIcons',
   // Internal settings (not shown in UI)
-  SYNC_ICONS_HINT_SHOWN: 'syncIconsHintShown',
   WIZARD_COMPLETED: 'wizardCompleted',
 } as const;
 
@@ -236,14 +235,6 @@ export async function registerSettings(joplin: any): Promise<void> {
     },
 
     // Internal settings (not visible in UI)
-    [SETTING_KEYS.SYNC_ICONS_HINT_SHOWN]: {
-      value: false,
-      type: SettingItemType.Bool,
-      section: SETTINGS_SECTION,
-      public: false,
-      label: 'Sync Icons Hint Shown (internal)',
-    },
-
     [SETTING_KEYS.WIZARD_COMPLETED]: {
       value: false,
       type: SettingItemType.Bool,
