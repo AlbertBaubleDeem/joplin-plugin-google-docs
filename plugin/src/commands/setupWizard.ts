@@ -436,7 +436,7 @@ async function showCompleteStep(j: any): Promise<void> {
         <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--joplin-color); text-align: left;">📝 Enable Sync Icons:</h3>
         <p style="margin: 0; color: var(--joplin-color); font-size: 13px;">
           To see Google Docs icons on synced notes, go to:<br/>
-          <strong>View → Note list style → "Default with sync status"</strong>
+          <strong>View → Note list style → "Compact with sync status"</strong>
         </p>
       </div>
       

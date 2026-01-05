@@ -177,7 +177,7 @@ export async function registerSettings(joplin: any): Promise<void> {
       section: SETTINGS_SECTION,
       public: true,
       label: 'Enable Sync Icons',
-      description: 'Shows Google Docs sync icons in note list. Go to View → Note list style and select "Default with sync status".',
+      description: 'Shows Google Docs sync icons in note list. Go to View → Note list style and select "Compact with sync status".',
     },
 
     // Enable/disable automatic sync

@@ -8,7 +8,7 @@ export function createSyncStatusRenderer(dataDir: string): ListRenderer {
   return {
     id: 'gdocs-sync-renderer',
     
-    label: async () => 'Default with sync status',
+    label: async () => 'Compact with sync status',
     
     flow: ItemFlow.TopToBottom,
     
