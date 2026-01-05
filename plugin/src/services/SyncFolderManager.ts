@@ -87,7 +87,7 @@ export async function ensureSyncFolder(
   // 4. Search Drive for folder with our plugin marker
   const { data } = await drive.files.list({
     q: `mimeType='application/vnd.google-apps.folder' and appProperties has { key='${APP_PROPERTY_PLUGIN_ID}' and value='${PLUGIN_ID}' } and trashed=false`,
-    fields: 'files(id,name)',
+    fields: 'files(id,name,appProperties)',
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,
     pageSize: 50,
@@ -95,9 +95,18 @@ export async function ensureSyncFolder(
   });
 
   if (data.files && data.files.length > 0) {
-    const folderId = data.files[0].id as string;
-    setSyncFolderId(dataDir, folderId);
-    return folderId;
+    // Filter out notebook subfolders (they have joplinNotebookId property)
+    // The sync root folder should NOT have joplinNotebookId
+    const syncRootCandidates = data.files.filter((f: any) => {
+      const props = f.appProperties || {};
+      return !props.joplinNotebookId;
+    });
+    
+    if (syncRootCandidates.length > 0) {
+      const folderId = syncRootCandidates[0].id as string;
+      setSyncFolderId(dataDir, folderId);
+      return folderId;
+    }
   }
 
   // 5. Create new folder
