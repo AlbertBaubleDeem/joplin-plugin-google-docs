@@ -279,6 +279,8 @@ joplin.plugins.register({
         if (result.completed) {
           // Mark wizard as completed so it won't run again
           await joplin.settings.setValue('wizardCompleted', true);
+          // Also mark sync icons hint as shown (wizard includes this info)
+          await joplin.settings.setValue('syncIconsHintShown', true);
         }
       }
     } catch (e) {
