@@ -41,8 +41,9 @@ export interface ExtractedImage {
 
 /**
  * Regex to match Joplin image syntax: ![alt](:/resourceId) or ![alt](:/resourceId "title")
+ * Handles escaped brackets in alt text like ![\[Windows\]](:/id)
  */
-const JOPLIN_IMAGE_REGEX = /!\[([^\]]*)\]\(:\/([a-fA-F0-9]+)(?:\s+"([^"]*)")?\)/g;
+const JOPLIN_IMAGE_REGEX = /!\[((?:[^\]\\]|\\.)*)\]\(:\/([a-fA-F0-9]+)(?:\s+"([^"]*)")?\)/g;
 
 /**
  * Regex to match HTML img tags with Joplin resource: <img src=":/resourceId" .../>
