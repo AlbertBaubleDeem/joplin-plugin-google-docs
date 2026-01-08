@@ -174,5 +174,7 @@ export type ImageRange = {
   title?: string;
   /** Original markdown for reference/debugging */
   originalMarkdown: string;
+  /** Link URL if image is wrapped in a link (e.g., [<img.../>](url)) */
+  linkUrl?: string;
 };
 
