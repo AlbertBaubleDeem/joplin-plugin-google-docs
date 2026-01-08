@@ -43,7 +43,24 @@ export interface ExtractedImage {
 const JOPLIN_IMAGE_REGEX = /!\[([^\]]*)\]\(:\/([a-fA-F0-9]+)(?:\s+"([^"]*)")?\)/g;
 
 /**
+ * Regex to match HTML img tags with Joplin resource: <img src=":/resourceId" .../>
+ * Captures: resourceId from src attribute
+ * Also extracts alt attribute if present
+ */
+const HTML_IMG_REGEX = /<img\s+[^>]*src=["']:\/([a-fA-F0-9]+)["'][^>]*\/?>/gi;
+
+/**
+ * Extract alt attribute from HTML img tag
+ */
+function extractAltFromHtmlImg(imgTag: string): string | undefined {
+  const altMatch = imgTag.match(/\salt=["']([^"']*)["']/i);
+  return altMatch ? altMatch[1] : undefined;
+}
+
+/**
  * Extract images from markdown and replace with placeholders
+ * 
+ * Handles both markdown syntax ![alt](:/resourceId) and HTML <img src=":/resourceId"/>
  * 
  * @param markdown - Original markdown with images
  * @returns Markdown with placeholders and extracted image metadata
@@ -52,7 +69,8 @@ export function extractImages(markdown: string): ImageExtractionResult {
   const images: ExtractedImage[] = [];
   let placeholderIndex = 0;
   
-  const markdownWithPlaceholders = markdown.replace(
+  // First pass: Replace markdown images ![alt](:/resourceId)
+  let markdownWithPlaceholders = markdown.replace(
     JOPLIN_IMAGE_REGEX,
     (match, altText, resourceId, title) => {
       images.push({
@@ -62,7 +80,22 @@ export function extractImages(markdown: string): ImageExtractionResult {
         originalMarkdown: match,
         placeholderIndex: placeholderIndex++,
       });
-      // Return indexed placeholder
+      return `${IMAGE_PLACEHOLDER}${placeholderIndex - 1}${IMAGE_PLACEHOLDER}`;
+    }
+  );
+  
+  // Second pass: Replace HTML img tags <img src=":/resourceId" .../>
+  markdownWithPlaceholders = markdownWithPlaceholders.replace(
+    HTML_IMG_REGEX,
+    (match, resourceId) => {
+      const altText = extractAltFromHtmlImg(match);
+      images.push({
+        resourceId,
+        altText,
+        title: undefined,
+        originalMarkdown: match,
+        placeholderIndex: placeholderIndex++,
+      });
       return `${IMAGE_PLACEHOLDER}${placeholderIndex - 1}${IMAGE_PLACEHOLDER}`;
     }
   );
@@ -187,10 +220,11 @@ export function calculateImagePositions<P extends AdjustableRange, T extends Adj
 }
 
 /**
- * Check if markdown contains Joplin images
+ * Check if markdown contains Joplin images (markdown or HTML syntax)
  */
 export function hasJoplinImages(markdown: string): boolean {
   JOPLIN_IMAGE_REGEX.lastIndex = 0; // Reset regex state
-  return JOPLIN_IMAGE_REGEX.test(markdown);
+  HTML_IMG_REGEX.lastIndex = 0; // Reset regex state
+  return JOPLIN_IMAGE_REGEX.test(markdown) || HTML_IMG_REGEX.test(markdown);
 }
 
