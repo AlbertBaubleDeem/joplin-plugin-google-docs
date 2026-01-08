@@ -6,9 +6,10 @@
  * 2. Style ranges for batchUpdate requests
  */
 
-import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange } from './types';
+import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange } from './types';
 import { getMonoFont } from './config';
 import { debug } from './debug';
+import { getCalloutDefinition, CALLOUT_BY_TYPE } from './callout-config';
 
 /**
  * Convert IR document to plain text with style ranges.
@@ -23,12 +24,44 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   
   const paraRanges: ParaRange[] = [];
   const textRanges: TextRange[] = [];
+  const calloutRanges: CalloutRange[] = [];
   let plain = '';
   let cursor = 0;
   let prevWasCodeBlock = false;
   
   for (const para of doc) {
     const isCodeBlock = para.type === 'code_block';
+    const isCallout = para.type === 'callout';
+    
+    // Handle callout boxes - render as styled paragraph with symbol prefix
+    if (isCallout && para.calloutType) {
+      const def = getCalloutDefinition(para.calloutType);
+      if (def) {
+        const content = para.spans.map(s => s.text).join('');
+        // Add symbol prefix followed by content
+        const calloutText = def.symbol + '  ' + content;
+        const calloutEnd = cursor + calloutText.length;
+        
+        // Add paragraph range with callout style
+        paraRanges.push({
+          start: cursor,
+          end: calloutEnd,
+          style: `CALLOUT_${para.calloutType.toUpperCase()}`,
+        });
+        
+        // Track for callout-specific styling (symbol formatting, etc.)
+        calloutRanges.push({
+          position: cursor,
+          calloutType: para.calloutType,
+          content: calloutText,
+        });
+        
+        plain += calloutText + '\n';
+        cursor = calloutEnd + 1;
+        debug('ir-to-docs', 'added-callout', { type: para.calloutType, position: cursor, content: content.substring(0, 50) });
+        continue;
+      }
+    }
     
     // Insert blank line between consecutive code blocks to prevent visual merging
     if (isCodeBlock && prevWasCodeBlock) {
@@ -63,10 +96,36 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
     // Append to plain text with newline
     plain += text + '\n';
     cursor = paraEnd + 1;
+    
+    // Add language label after code blocks that have a language specified
+    if (isCodeBlock && para.language) {
+      const langLabel = para.language;
+      const labelStart = cursor;
+      const labelEnd = cursor + langLabel.length;
+      
+      // Add paragraph range for the language label
+      paraRanges.push({
+        start: labelStart,
+        end: labelEnd,
+        style: 'CODE_LANG_LABEL',
+      });
+      
+      // Add text range for the label styling (small font, grey color)
+      textRanges.push({
+        start: labelStart,
+        end: labelEnd,
+        langLabel: true, // Special flag for language label styling
+      });
+      
+      plain += langLabel + '\n';
+      cursor = labelEnd + 1;
+      debug('ir-to-docs', 'added-lang-label', { language: langLabel, start: labelStart, end: labelEnd });
+    }
+    
     prevWasCodeBlock = isCodeBlock;
   }
   
-  const result = { plain, paraRanges, textRanges };
+  const result = { plain, paraRanges, textRanges, calloutRanges };
   debug('ir-to-docs', 'result', result);
   return result;
 }
@@ -195,6 +254,76 @@ function buildParagraphStyleRequest(range: ParaRange, monoFont: string): any {
     };
   }
   
+  if (range.style === 'CODE_LANG_LABEL') {
+    // Language label: right-aligned, no top margin, small bottom spacing
+    return {
+      updateParagraphStyle: {
+        range: { startIndex, endIndex },
+        paragraphStyle: {
+          alignment: 'END',
+          spaceAbove: { magnitude: 0, unit: 'PT' },
+          spaceBelow: { magnitude: 6, unit: 'PT' },
+        },
+        fields: 'alignment,spaceAbove,spaceBelow',
+      },
+    };
+  }
+  
+  // Check for callout styles (CALLOUT_NOTE, CALLOUT_INFO, etc.)
+  if (range.style.startsWith('CALLOUT_')) {
+    const calloutTypeName = range.style.replace('CALLOUT_', '').toLowerCase();
+    const def = CALLOUT_BY_TYPE[calloutTypeName as keyof typeof CALLOUT_BY_TYPE];
+    
+    if (def) {
+      // Create lighter shade for background (mix with white)
+      const bgColor = {
+        red: 0.95 + def.rgbColor.red * 0.05,
+        green: 0.95 + def.rgbColor.green * 0.05,
+        blue: 0.95 + def.rgbColor.blue * 0.05,
+      };
+      
+      return {
+        updateParagraphStyle: {
+          range: { startIndex, endIndex },
+          paragraphStyle: {
+            shading: {
+              backgroundColor: {
+                color: { rgbColor: bgColor },
+              },
+            },
+            borderLeft: {
+              width: { magnitude: 3, unit: 'PT' },
+              padding: { magnitude: 8, unit: 'PT' },
+              color: { color: { rgbColor: def.rgbColor } },
+              dashStyle: 'SOLID',
+            },
+            borderTop: {
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 4, unit: 'PT' },
+              color: { color: { rgbColor: def.rgbColor } },
+              dashStyle: 'SOLID',
+            },
+            borderBottom: {
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 4, unit: 'PT' },
+              color: { color: { rgbColor: def.rgbColor } },
+              dashStyle: 'SOLID',
+            },
+            borderRight: {
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 4, unit: 'PT' },
+              color: { color: { rgbColor: def.rgbColor } },
+              dashStyle: 'SOLID',
+            },
+            spaceAbove: { magnitude: 8, unit: 'PT' },
+            spaceBelow: { magnitude: 8, unit: 'PT' },
+          },
+          fields: 'shading,borderLeft,borderTop,borderBottom,borderRight,spaceAbove,spaceBelow',
+        },
+      };
+    }
+  }
+  
   // Regular paragraph with named style
   return {
     updateParagraphStyle: {
@@ -252,6 +381,22 @@ function buildTextStyleRequests(range: TextRange, monoFont: string): any[] {
     });
   }
   
+  // Add styling for language label (small font, darker grey for visibility)
+  if (range.langLabel) {
+    requests.push({
+      updateTextStyle: {
+        range: { startIndex, endIndex },
+        textStyle: {
+          fontSize: { magnitude: 8, unit: 'PT' },
+          foregroundColor: {
+            color: { rgbColor: { red: 0.5, green: 0.5, blue: 0.5 } },
+          },
+        },
+        fields: 'fontSize,foregroundColor',
+      },
+    });
+  }
+  
   return requests;
 }
 
@@ -275,4 +420,5 @@ export function buildCodeBlockFontRequests(
       },
     }));
 }
+
 

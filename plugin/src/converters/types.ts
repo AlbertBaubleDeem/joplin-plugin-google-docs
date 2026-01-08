@@ -34,7 +34,13 @@ export type ParagraphType =
   | 'paragraph'    // normal text
   | 'code_block'   // fenced code block
   | 'title'        // document title (special heading)
-  | 'subtitle';    // document subtitle
+  | 'subtitle'     // document subtitle
+  | 'callout';     // callout box (note, info, question, warning, jarvis)
+
+/**
+ * Callout box types supported by the converter.
+ */
+export type CalloutType = 'note' | 'info' | 'question' | 'warning' | 'jarvis';
 
 /**
  * A paragraph in the document.
@@ -49,6 +55,8 @@ export type Paragraph = {
   spans: StyledSpan[];
   /** Language hint for code blocks */
   language?: string;
+  /** Callout type, only used when type === 'callout' */
+  calloutType?: CalloutType;
 };
 
 /**
@@ -111,6 +119,8 @@ export type PlainTextWithRanges = {
   paraRanges: ParaRange[];
   /** Inline text style ranges */
   textRanges: TextRange[];
+  /** Callout boxes to be rendered as tables */
+  calloutRanges?: CalloutRange[];
 };
 
 /**
@@ -143,6 +153,8 @@ export type TextRange = {
   codeMono?: boolean;
   /** Link URL */
   linkUrl?: string;
+  /** Language label (small grey text for code block language) */
+  langLabel?: boolean;
 };
 
 /**
@@ -157,6 +169,19 @@ export type ConversionDebug = {
   output: any;
   /** Timestamp */
   timestamp: number;
+};
+
+/**
+ * A callout box to be rendered as a 2-cell table.
+ * Used for tracking callout positions and generating table requests.
+ */
+export type CalloutRange = {
+  /** Position in the plain text where the callout table should be inserted */
+  position: number;
+  /** The callout type (determines color and symbol) */
+  calloutType: CalloutType;
+  /** The text content of the callout */
+  content: string;
 };
 
 /**

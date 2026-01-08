@@ -6,9 +6,57 @@
  */
 
 import { marked, Token, Tokens } from 'marked';
-import { IRDocument, Paragraph, StyledSpan, ConverterConfig } from './types';
+import { IRDocument, Paragraph, StyledSpan, ConverterConfig, CalloutType } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
+import { CALLOUT_TYPE_NAMES } from './callout-config';
+
+/**
+ * Regex pattern to match callout blocks.
+ * Matches: <note>content</note>, <info>content</info>, etc.
+ * Content can span multiple lines.
+ */
+const CALLOUT_BLOCK_REGEX = new RegExp(
+  `<(${CALLOUT_TYPE_NAMES.join('|')})>([\\s\\S]*?)<\\/\\1>`,
+  'gi'
+);
+
+/**
+ * Placeholder prefix used to mark callout positions in the markdown.
+ */
+const CALLOUT_PLACEHOLDER_PREFIX = '___CALLOUT_PLACEHOLDER_';
+
+/**
+ * Extracted callout with its content and type.
+ */
+type ExtractedCallout = {
+  type: CalloutType;
+  content: string;
+  placeholderId: string;
+};
+
+/**
+ * Extract callout blocks from markdown and replace with placeholders.
+ * Returns the modified markdown and the extracted callouts.
+ */
+function extractCallouts(markdown: string): { markdown: string; callouts: ExtractedCallout[] } {
+  const callouts: ExtractedCallout[] = [];
+  let calloutIndex = 0;
+  
+  const modifiedMarkdown = markdown.replace(CALLOUT_BLOCK_REGEX, (match, type, content) => {
+    const placeholderId = `${CALLOUT_PLACEHOLDER_PREFIX}${calloutIndex}___`;
+    callouts.push({
+      type: type.toLowerCase() as CalloutType,
+      content: content.trim(),
+      placeholderId,
+    });
+    calloutIndex++;
+    debug('md-to-ir', 'extracted-callout', { type, contentPreview: content.substring(0, 50) });
+    return placeholderId;
+  });
+  
+  return { markdown: modifiedMarkdown, callouts };
+}
 
 /**
  * Convert Markdown string to IR document.
@@ -25,8 +73,17 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
   // Normalize line endings
   const normalized = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   
+  // Extract callout blocks before tokenizing (marked doesn't understand them)
+  const { markdown: preprocessed, callouts } = extractCallouts(normalized);
+  
+  // Build a map of placeholder ID to callout for quick lookup
+  const calloutMap = new Map<string, ExtractedCallout>();
+  for (const callout of callouts) {
+    calloutMap.set(callout.placeholderId, callout);
+  }
+  
   // Use marked's lexer to tokenize
-  const tokens = marked.lexer(normalized);
+  const tokens = marked.lexer(preprocessed);
   console.log('[converter] tokens generated:', tokens.length);
   debug('md-to-ir', 'tokens', tokens);
   
@@ -34,7 +91,7 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
   const paragraphs: Paragraph[] = [];
   
   for (const token of tokens) {
-    const paras = tokenToParagraphs(token, cfg);
+    const paras = tokenToParagraphs(token, cfg, calloutMap);
     paragraphs.push(...paras);
   }
   
@@ -49,7 +106,11 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
  * Convert a single marked token to one or more Paragraphs.
  * Lists can produce multiple paragraphs.
  */
-function tokenToParagraphs(token: Token, config: ConverterConfig): Paragraph[] {
+function tokenToParagraphs(
+  token: Token, 
+  config: ConverterConfig,
+  calloutMap: Map<string, ExtractedCallout>
+): Paragraph[] {
   switch (token.type) {
     case 'heading':
       return [{
@@ -58,11 +119,43 @@ function tokenToParagraphs(token: Token, config: ConverterConfig): Paragraph[] {
         spans: inlineTokensToSpans((token as Tokens.Heading).tokens || []),
       }];
     
-    case 'paragraph':
+    case 'paragraph': {
+      // Check if this paragraph is a callout placeholder
+      const paraToken = token as Tokens.Paragraph;
+      const rawText = paraToken.raw?.trim() || '';
+      
+      // Check if it's a callout placeholder
+      if (rawText.startsWith(CALLOUT_PLACEHOLDER_PREFIX) && rawText.endsWith('___')) {
+        const callout = calloutMap.get(rawText);
+        if (callout) {
+          debug('md-to-ir', 'converting-callout-placeholder', { type: callout.type });
+          // Parse the callout content as markdown to get styled spans
+          const contentTokens = marked.lexer(callout.content);
+          const contentSpans: StyledSpan[] = [];
+          for (const t of contentTokens) {
+            if (t.type === 'paragraph') {
+              contentSpans.push(...inlineTokensToSpans((t as Tokens.Paragraph).tokens || []));
+            } else if (t.type === 'text') {
+              contentSpans.push({ text: (t as Tokens.Text).text });
+            }
+          }
+          // If no spans extracted, use the raw content
+          if (contentSpans.length === 0) {
+            contentSpans.push({ text: callout.content });
+          }
+          return [{
+            type: 'callout',
+            calloutType: callout.type,
+            spans: contentSpans,
+          }];
+        }
+      }
+      
       return [{
         type: 'paragraph',
-        spans: inlineTokensToSpans((token as Tokens.Paragraph).tokens || []),
+        spans: inlineTokensToSpans(paraToken.tokens || []),
       }];
+    }
     
     case 'code':
       // Code block: single span with the raw code text

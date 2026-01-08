@@ -41,9 +41,10 @@ function isListItemParagraph(para: Paragraph): boolean {
  * 
  * - Code blocks: Triple backticks are self-delimiting
  * - Images: Already visually distinct as inline elements
+ * - Callouts: HTML-like tags are self-delimiting
  */
 function isSelfDelimitingParagraph(para: Paragraph): boolean {
-  return para.type === 'code_block' || isImageOnlyParagraph(para);
+  return para.type === 'code_block' || para.type === 'callout' || isImageOnlyParagraph(para);
 }
 
 /**
@@ -132,6 +133,12 @@ function paragraphToMarkdown(para: Paragraph, config: ConverterConfig): string |
     const lang = para.language || '';
     const fence = config.code?.block?.marker || '```';
     return fence + lang + '\n' + codeText + '\n' + fence;
+  }
+  
+  // Handle callout boxes
+  if (para.type === 'callout' && para.calloutType) {
+    const content = spansToMarkdown(para.spans, config);
+    return `<${para.calloutType}>${content}</${para.calloutType}>`;
   }
   
   // Get prefix for paragraph type

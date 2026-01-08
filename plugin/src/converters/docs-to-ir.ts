@@ -10,9 +10,10 @@
  * - Paragraph styles (headings, code blocks, etc.)
  */
 
-import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig } from './types';
+import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig, CalloutType } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
+import { CALLOUT_DEFINITIONS, matchCalloutByColor, getCalloutTypeBySymbol } from './callout-config';
 
 /**
  * Google Docs text style structure (subset).
@@ -110,8 +111,11 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   // (respects _hasPrecedingSeparator flag to keep separated blocks apart)
   const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs);
   
-  debug('docs-to-ir', 'result', mergedParagraphs);
-  return mergedParagraphs;
+  // Extract language labels and associate with preceding code blocks
+  const finalParagraphs = extractLanguageLabels(mergedParagraphs, body);
+  
+  debug('docs-to-ir', 'result', finalParagraphs);
+  return finalParagraphs;
 }
 
 /**
@@ -181,7 +185,7 @@ function elementToParagraph(
   const paragraphStyle: DocsParagraphStyle = p.paragraphStyle || {};
   
   // Determine paragraph type from style
-  let { type, level } = determineParagraphType(paragraphStyle, config);
+  let { type, level, calloutType } = determineParagraphType(paragraphStyle, config);
   
   // Check for native Google Docs code block (all-monospace paragraph)
   // Override type to code_block if detected
@@ -205,6 +209,22 @@ function elementToParagraph(
     return null;
   }
   
+  // Handle callout: strip the symbol prefix from the content
+  if (type === 'callout' && calloutType && spans.length > 0) {
+    // Get the expected symbol for this callout type
+    const calloutDef = CALLOUT_DEFINITIONS.find(d => d.type === calloutType);
+    if (calloutDef) {
+      const firstSpan = spans[0];
+      const symbolPattern = new RegExp(`^${escapeRegex(calloutDef.symbol)}\\s*`);
+      if (symbolPattern.test(firstSpan.text)) {
+        // Strip the symbol prefix
+        firstSpan.text = firstSpan.text.replace(symbolPattern, '');
+        debug('docs-to-ir', 'stripped-callout-symbol', { calloutType, symbol: calloutDef.symbol });
+      }
+    }
+    return { type, calloutType, spans };
+  }
+  
   // Detect native Google Docs bullet lists
   // Prepend bullet character to first span
   const bullet = p.bullet;
@@ -219,15 +239,32 @@ function elementToParagraph(
 }
 
 /**
+ * Escape special regex characters in a string.
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Determine paragraph type from Google Docs paragraph style.
  */
 function determineParagraphType(
   style: DocsParagraphStyle,
   config: ConverterConfig
-): { type: ParagraphType; level?: number } {
+): { type: ParagraphType; level?: number; calloutType?: CalloutType } {
   const namedStyle = style.namedStyleType;
   
-  // Check for code block (shading or border indicates code)
+  // Check for callout box (colored border matching a callout definition)
+  if (style.borderLeft?.color?.color?.rgbColor) {
+    const borderColor = style.borderLeft.color.color.rgbColor;
+    const calloutType = matchCalloutByColor(borderColor);
+    if (calloutType) {
+      debug('docs-to-ir', 'detected-callout-by-border', { calloutType, borderColor });
+      return { type: 'callout', calloutType };
+    }
+  }
+  
+  // Check for code block (shading or border indicates code - grey borders)
   const isCodeBlock = !!(style.shading || style.borderLeft);
   if (isCodeBlock && config.code?.block?.detect !== false) {
     return { type: 'code_block' };
@@ -377,6 +414,130 @@ function inlineObjectToSpan(
   const altText = title ? `GDoc image: ${title}` : 'GDoc image';
   debug('docs-to-ir', 'image-external', { objectId, altText, sourceUri: sourceUri?.substring(0, 40) });
   return { text: `[${altText}]` };
+}
+
+/**
+ * Check if a Google Docs paragraph element is a language label.
+ * Language labels are small grey right-aligned text following a code block.
+ * 
+ * Detection criteria:
+ * - Right-aligned (alignment: 'END')
+ * - Small font size (around 8pt, checking for < 10pt)
+ * - Grey color (RGB values around 0.8 each)
+ * - Single word content (valid language identifier)
+ */
+function isLanguageLabelElement(element: any): { isLabel: boolean; language?: string } {
+  const p = element?.paragraph;
+  if (!p?.elements?.length) return { isLabel: false };
+  
+  const paragraphStyle = p.paragraphStyle || {};
+  
+  // Check for right alignment
+  if (paragraphStyle.alignment !== 'END') {
+    return { isLabel: false };
+  }
+  
+  // Get the text content - should be a single text run with a language name
+  const textRuns = p.elements.filter((e: any) => e.textRun?.content);
+  if (textRuns.length !== 1) return { isLabel: false };
+  
+  const textRun = textRuns[0].textRun;
+  const content = (textRun.content || '').replace(/\n+$/g, '').trim();
+  
+  // Language names are typically single words (e.g., "bash", "python", "javascript")
+  // Allow alphanumeric, hyphen, plus for languages like "c++", "objective-c"
+  if (!content || !/^[\w\-+#]+$/.test(content)) {
+    return { isLabel: false };
+  }
+  
+  // Check text style for small font and grey color
+  const textStyle = textRun.textStyle || {};
+  
+  // Check font size (should be small, around 8pt)
+  const fontSize = textStyle.fontSize?.magnitude;
+  if (fontSize && fontSize >= 10) {
+    return { isLabel: false };
+  }
+  
+  // Check for grey foreground color
+  const fgColor = textStyle.foregroundColor?.color?.rgbColor;
+  if (fgColor) {
+    const { red = 0, green = 0, blue = 0 } = fgColor;
+    // Grey color should have similar RGB values, around 0.4-0.9 (darker grey at ~0.5)
+    const isGrey = red > 0.3 && red < 1 && 
+                   green > 0.3 && green < 1 && 
+                   blue > 0.3 && blue < 1 &&
+                   Math.abs(red - green) < 0.1 && 
+                   Math.abs(green - blue) < 0.1;
+    if (!isGrey) {
+      return { isLabel: false };
+    }
+  }
+  
+  debug('docs-to-ir', 'detected-lang-label', { content, fontSize, fgColor });
+  return { isLabel: true, language: content };
+}
+
+/**
+ * Extract language labels from paragraphs and associate with preceding code blocks.
+ * Language labels are removed from the output and their content is set as the
+ * `language` property of the preceding code block.
+ * 
+ * @param paragraphs - The IR paragraphs (after merging code blocks)
+ * @param rawBody - The raw Google Docs body.content array for style detection
+ */
+function extractLanguageLabels(paragraphs: Paragraph[], rawBody: any[]): Paragraph[] {
+  if (paragraphs.length === 0) return [];
+  
+  // Build a map of paragraph text to raw element for style checking
+  // This is needed because IR paragraphs don't preserve the raw styling info
+  const rawElementMap = new Map<string, any>();
+  for (const element of rawBody) {
+    if (element?.paragraph?.elements) {
+      const content = element.paragraph.elements
+        .map((e: any) => e.textRun?.content || '')
+        .join('')
+        .replace(/\n+$/g, '')
+        .trim();
+      if (content) {
+        rawElementMap.set(content, element);
+      }
+    }
+  }
+  
+  const result: Paragraph[] = [];
+  let i = 0;
+  
+  while (i < paragraphs.length) {
+    const para = paragraphs[i];
+    
+    // If this is a code block, check if the next paragraph is a language label
+    if (para.type === 'code_block' && i + 1 < paragraphs.length) {
+      const nextPara = paragraphs[i + 1];
+      
+      // Get the text content of the next paragraph
+      const nextContent = nextPara.spans.map(s => s.text).join('').trim();
+      
+      // Look up the raw element to check if it's a language label
+      const rawElement = rawElementMap.get(nextContent);
+      if (rawElement) {
+        const { isLabel, language } = isLanguageLabelElement(rawElement);
+        if (isLabel && language) {
+          // Set language on the code block and skip the label paragraph
+          para.language = language;
+          debug('docs-to-ir', 'extracted-lang-from-label', { language, codePreview: para.spans[0]?.text?.substring(0, 30) });
+          result.push(para);
+          i += 2; // Skip both the code block (added) and the label (discarded)
+          continue;
+        }
+      }
+    }
+    
+    result.push(para);
+    i++;
+  }
+  
+  return result;
 }
 
 /**
