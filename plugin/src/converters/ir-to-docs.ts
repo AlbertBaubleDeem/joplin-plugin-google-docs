@@ -7,7 +7,7 @@
  */
 
 import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange } from './types';
-import { getMonoFont } from './config';
+import { getMonoFont, getElementSpacing } from './config';
 import { debug } from './debug';
 import { getCalloutDefinition, CALLOUT_BY_TYPE } from './callout-config';
 
@@ -212,7 +212,7 @@ export function buildDocsRequests(
   // Build paragraph style requests
   const paraReqs = paraRanges
     .filter(r => r.end > r.start)
-    .map(r => buildParagraphStyleRequest(r, monoFont));
+    .map(r => buildParagraphStyleRequest(r, monoFont, installDir));
   
   // Build text style requests
   const textReqs = textRanges
@@ -225,46 +225,70 @@ export function buildDocsRequests(
 /**
  * Build a paragraph style request.
  */
-function buildParagraphStyleRequest(range: ParaRange, monoFont: string): any {
+function buildParagraphStyleRequest(range: ParaRange, monoFont: string, installDir?: string): any {
   // Docs API uses 1-based indices
   const startIndex = range.start + 1;
   const endIndex = range.end + 1;
   
   if (range.style === 'CODEBLOCK') {
     // Code blocks get special styling (shading + border + spacing)
+    const spacing = getElementSpacing('code_block', installDir);
+    const paragraphStyle: any = {
+      shading: {
+        backgroundColor: {
+          color: { rgbColor: { red: 0.96, green: 0.96, blue: 0.96 } },
+        },
+      },
+      borderLeft: {
+        width: { magnitude: 1, unit: 'PT' },
+        padding: { magnitude: 6, unit: 'PT' },
+        color: { color: { rgbColor: { red: 0.8, green: 0.8, blue: 0.8 } } },
+        dashStyle: 'SOLID',
+      },
+    };
+    
+    // Build fields list dynamically based on what's set
+    const fields = ['shading', 'borderLeft'];
+    if (spacing.spaceAbove !== undefined) {
+      paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
+      fields.push('spaceAbove');
+    }
+    if (spacing.spaceBelow !== undefined) {
+      paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
+      fields.push('spaceBelow');
+    }
+    
     return {
       updateParagraphStyle: {
         range: { startIndex, endIndex },
-        paragraphStyle: {
-          shading: {
-            backgroundColor: {
-              color: { rgbColor: { red: 0.96, green: 0.96, blue: 0.96 } },
-            },
-          },
-          borderLeft: {
-            width: { magnitude: 1, unit: 'PT' },
-            padding: { magnitude: 6, unit: 'PT' },
-            color: { color: { rgbColor: { red: 0.8, green: 0.8, blue: 0.8 } } },
-            dashStyle: 'SOLID',
-          },
-          spaceBelow: { magnitude: 12, unit: 'PT' },
-        },
-        fields: 'shading,borderLeft,spaceBelow',
+        paragraphStyle,
+        fields: fields.join(','),
       },
     };
   }
   
   if (range.style === 'CODE_LANG_LABEL') {
-    // Language label: right-aligned, no top margin, small bottom spacing
+    // Language label: right-aligned, configurable spacing
+    const spacing = getElementSpacing('code_lang_label', installDir);
+    const paragraphStyle: any = {
+      alignment: 'END',
+    };
+    
+    const fields = ['alignment'];
+    if (spacing.spaceAbove !== undefined) {
+      paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
+      fields.push('spaceAbove');
+    }
+    if (spacing.spaceBelow !== undefined) {
+      paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
+      fields.push('spaceBelow');
+    }
+    
     return {
       updateParagraphStyle: {
         range: { startIndex, endIndex },
-        paragraphStyle: {
-          alignment: 'END',
-          spaceAbove: { magnitude: 0, unit: 'PT' },
-          spaceBelow: { magnitude: 6, unit: 'PT' },
-        },
-        fields: 'alignment,spaceAbove,spaceBelow',
+        paragraphStyle,
+        fields: fields.join(','),
       },
     };
   }
@@ -275,6 +299,8 @@ function buildParagraphStyleRequest(range: ParaRange, monoFont: string): any {
     const def = CALLOUT_BY_TYPE[calloutTypeName as keyof typeof CALLOUT_BY_TYPE];
     
     if (def) {
+      const spacing = getElementSpacing('callout', installDir);
+      
       // Create lighter shade for background (mix with white)
       const bgColor = {
         red: 0.95 + def.rgbColor.red * 0.05,
@@ -282,43 +308,53 @@ function buildParagraphStyleRequest(range: ParaRange, monoFont: string): any {
         blue: 0.95 + def.rgbColor.blue * 0.05,
       };
       
+      const paragraphStyle: any = {
+        shading: {
+          backgroundColor: {
+            color: { rgbColor: bgColor },
+          },
+        },
+        borderLeft: {
+          width: { magnitude: 3, unit: 'PT' },
+          padding: { magnitude: 8, unit: 'PT' },
+          color: { color: { rgbColor: def.rgbColor } },
+          dashStyle: 'SOLID',
+        },
+        borderTop: {
+          width: { magnitude: 1, unit: 'PT' },
+          padding: { magnitude: 4, unit: 'PT' },
+          color: { color: { rgbColor: def.rgbColor } },
+          dashStyle: 'SOLID',
+        },
+        borderBottom: {
+          width: { magnitude: 1, unit: 'PT' },
+          padding: { magnitude: 4, unit: 'PT' },
+          color: { color: { rgbColor: def.rgbColor } },
+          dashStyle: 'SOLID',
+        },
+        borderRight: {
+          width: { magnitude: 1, unit: 'PT' },
+          padding: { magnitude: 4, unit: 'PT' },
+          color: { color: { rgbColor: def.rgbColor } },
+          dashStyle: 'SOLID',
+        },
+      };
+      
+      const fields = ['shading', 'borderLeft', 'borderTop', 'borderBottom', 'borderRight'];
+      if (spacing.spaceAbove !== undefined) {
+        paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
+        fields.push('spaceAbove');
+      }
+      if (spacing.spaceBelow !== undefined) {
+        paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
+        fields.push('spaceBelow');
+      }
+      
       return {
         updateParagraphStyle: {
           range: { startIndex, endIndex },
-          paragraphStyle: {
-            shading: {
-              backgroundColor: {
-                color: { rgbColor: bgColor },
-              },
-            },
-            borderLeft: {
-              width: { magnitude: 3, unit: 'PT' },
-              padding: { magnitude: 8, unit: 'PT' },
-              color: { color: { rgbColor: def.rgbColor } },
-              dashStyle: 'SOLID',
-            },
-            borderTop: {
-              width: { magnitude: 1, unit: 'PT' },
-              padding: { magnitude: 4, unit: 'PT' },
-              color: { color: { rgbColor: def.rgbColor } },
-              dashStyle: 'SOLID',
-            },
-            borderBottom: {
-              width: { magnitude: 1, unit: 'PT' },
-              padding: { magnitude: 4, unit: 'PT' },
-              color: { color: { rgbColor: def.rgbColor } },
-              dashStyle: 'SOLID',
-            },
-            borderRight: {
-              width: { magnitude: 1, unit: 'PT' },
-              padding: { magnitude: 4, unit: 'PT' },
-              color: { color: { rgbColor: def.rgbColor } },
-              dashStyle: 'SOLID',
-            },
-            spaceAbove: { magnitude: 8, unit: 'PT' },
-            spaceBelow: { magnitude: 8, unit: 'PT' },
-          },
-          fields: 'shading,borderLeft,borderTop,borderBottom,borderRight,spaceAbove,spaceBelow',
+          paragraphStyle,
+          fields: fields.join(','),
         },
       };
     }

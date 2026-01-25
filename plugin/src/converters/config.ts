@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { ConverterConfig } from './types';
+import { ConverterConfig, ElementSpacing } from './types';
 
 /** Default configuration */
 const DEFAULT_CONFIG: ConverterConfig = {
@@ -26,6 +26,30 @@ const DEFAULT_CONFIG: ConverterConfig = {
     HEADING_5: '##### ',
     HEADING_6: '###### ',
   },
+};
+
+/**
+ * Default element spacing configuration.
+ * 
+ * - Empty object {} = use Google Docs named style default
+ * - { spaceAbove: N } = explicit N points above
+ * - { spaceBelow: N } = explicit N points below
+ */
+const DEFAULT_ELEMENT_SPACING: Record<string, ElementSpacing> = {
+  // Named styles - use Google Docs defaults (no explicit spacing)
+  title: {},
+  subtitle: {},
+  heading_1: {},
+  heading_2: {},
+  heading_3: {},
+  heading_4: {},
+  heading_5: {},
+  heading_6: {},
+  paragraph: {},
+  // Custom styled elements - explicit spacing
+  code_block: { spaceBelow: 12 },
+  code_lang_label: { spaceAbove: 0, spaceBelow: 6 },
+  callout: { spaceAbove: 8, spaceBelow: 8 },
 };
 
 /** Cached config per installDir */
@@ -72,6 +96,23 @@ export function loadConfig(installDir?: string): ConverterConfig {
     // Ignore errors, use defaults
   }
   
+  // Merge elementSpacing: for each element type, merge default with file override
+  const mergedElementSpacing: Record<string, ElementSpacing> = {};
+  for (const key of Object.keys(DEFAULT_ELEMENT_SPACING)) {
+    mergedElementSpacing[key] = {
+      ...DEFAULT_ELEMENT_SPACING[key],
+      ...fileConfig.elementSpacing?.[key],
+    };
+  }
+  // Also include any custom element types from file config
+  if (fileConfig.elementSpacing) {
+    for (const key of Object.keys(fileConfig.elementSpacing)) {
+      if (!mergedElementSpacing[key]) {
+        mergedElementSpacing[key] = fileConfig.elementSpacing[key];
+      }
+    }
+  }
+
   // Merge with defaults (deep merge nested objects)
   const merged: ConverterConfig = {
     ...DEFAULT_CONFIG,
@@ -80,6 +121,7 @@ export function loadConfig(installDir?: string): ConverterConfig {
     subtitle: { ...DEFAULT_CONFIG.subtitle, ...fileConfig.subtitle },
     code: { ...DEFAULT_CONFIG.code, ...fileConfig.code },
     mdPrefixes: { ...DEFAULT_CONFIG.mdPrefixes, ...fileConfig.mdPrefixes },
+    elementSpacing: mergedElementSpacing,
   };
   
   // Cache and return
@@ -101,5 +143,17 @@ export function clearConfigCache(): void {
 export function getMonoFont(installDir?: string): string {
   const config = loadConfig(installDir);
   return config.code?.monoFont || 'Roboto Mono';
+}
+
+/**
+ * Get spacing configuration for an element type.
+ * 
+ * @param elementType - The element type (e.g., 'code_block', 'callout', 'heading_1')
+ * @param installDir - Optional install directory for config
+ * @returns The spacing configuration for the element
+ */
+export function getElementSpacing(elementType: string, installDir?: string): ElementSpacing {
+  const config = loadConfig(installDir);
+  return config.elementSpacing?.[elementType] || DEFAULT_ELEMENT_SPACING[elementType] || {};
 }
 

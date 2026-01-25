@@ -43,6 +43,20 @@ export type ParagraphType =
 export type CalloutType = 'note' | 'info' | 'question' | 'warning' | 'jarvis';
 
 /**
+ * Element spacing configuration for Google Docs paragraphs.
+ * Values are in points (PT).
+ * 
+ * - undefined = use Google Docs named style default (no explicit spacing in API request)
+ * - number = explicit spacing value in points
+ */
+export type ElementSpacing = {
+  /** Space above paragraph in points */
+  spaceAbove?: number;
+  /** Space below paragraph in points */
+  spaceBelow?: number;
+};
+
+/**
  * A paragraph in the document.
  * Contains styled spans and paragraph-level metadata.
  */
@@ -106,6 +120,8 @@ export type ConverterConfig = {
     'TITLE' | 'SUBTITLE' | 'HEADING_1' | 'HEADING_2' | 'HEADING_3' | 'HEADING_4' | 'HEADING_5' | 'HEADING_6',
     string
   >>;
+  /** Element spacing configuration (overrides defaults) */
+  elementSpacing?: Record<string, ElementSpacing>;
 };
 
 /**

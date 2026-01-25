@@ -21,5 +21,10 @@
       "prefix": ">",
       "paragraphStyle": { "indentStart": { "magnitude": 18, "unit": "PT" } }
     }
+  },
+  "elementSpacing": {
+    "code_block": { "spaceBelow": 12 },
+    "code_lang_label": { "spaceAbove": 0, "spaceBelow": 6 },
+    "callout": { "spaceAbove": 8, "spaceBelow": 8 }
   }
 }
