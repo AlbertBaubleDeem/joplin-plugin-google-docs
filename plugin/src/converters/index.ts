@@ -47,7 +47,7 @@ export { DocxConverter, createDocxConverter } from './DocxConverter';
 export * from './types';
 
 // Re-export config utilities
-export { loadConfig, setInstallDir, getMonoFont, clearConfigCache } from './config';
+export { loadConfig, setInstallDir, setDataDir, getMonoFont, clearConfigCache } from './config';
 
 // Re-export debug utilities
 export { setDebugMode, isDebugEnabled, getDebugLog, clearDebugLog, formatIRDocument, getDebugLogPath } from './debug';
@@ -65,7 +65,7 @@ import { docsToIR } from './docs-to-ir';
 import { irToMarkdown } from './ir-to-md';
 import { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests } from './ir-to-docs';
 import { extractImages, calculateImagePositions, hasJoplinImages } from './image-extractor';
-import { loadConfig, setInstallDir } from './config';
+import { loadConfig, setInstallDir, setDataDir } from './config';
 import type { ParaRange, TextRange, ImageRange, ConverterConfig } from './types';
 
 /**

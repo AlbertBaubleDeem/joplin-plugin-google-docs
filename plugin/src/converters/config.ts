@@ -1,7 +1,10 @@
 /**
  * Converter Configuration
  * 
- * Loads and caches converter configuration from config/md-mapping.json.
+ * Loads converter configuration with the following priority:
+ * 1. User customizations from dataDir/md-mapping.json (survives plugin updates)
+ * 2. Default config from installDir/config/md-mapping.json (from plugin archive)
+ * 3. Built-in DEFAULT_CONFIG
  */
 
 import * as fs from 'fs';
@@ -52,14 +55,17 @@ const DEFAULT_ELEMENT_SPACING: Record<string, ElementSpacing> = {
   callout: { spaceAbove: 8, spaceBelow: 8 },
 };
 
-/** Cached config per installDir */
+/** Cached config */
 const configCache = new Map<string, ConverterConfig>();
 
-/** Current installDir for loading config */
+/** Current installDir for loading default config */
 let currentInstallDir: string | undefined;
 
+/** Current dataDir for loading user customizations */
+let currentDataDir: string | undefined;
+
 /**
- * Set the install directory for loading config.
+ * Set the install directory for loading default config.
  * Call this once at plugin initialization.
  */
 export function setInstallDir(installDir: string): void {
@@ -67,7 +73,20 @@ export function setInstallDir(installDir: string): void {
 }
 
 /**
+ * Set the data directory for loading user customizations.
+ * Call this once at plugin initialization.
+ */
+export function setDataDir(dataDir: string): void {
+  currentDataDir = dataDir;
+}
+
+/**
  * Load converter configuration.
+ * 
+ * Priority:
+ * 1. User customizations from dataDir/md-mapping.json
+ * 2. Default config from installDir/config/md-mapping.json
+ * 3. Built-in DEFAULT_CONFIG
  * 
  * @param installDir - Optional override for install directory
  * @returns The merged configuration (defaults + file overrides)
@@ -75,25 +94,41 @@ export function setInstallDir(installDir: string): void {
 export function loadConfig(installDir?: string): ConverterConfig {
   const dir = installDir || currentInstallDir;
   
-  if (!dir) {
-    return DEFAULT_CONFIG;
-  }
+  // Use a cache key that includes both directories
+  const cacheKey = `${currentDataDir || ''}:${dir || ''}`;
   
   // Check cache
-  if (configCache.has(dir)) {
-    return configCache.get(dir)!;
+  if (configCache.has(cacheKey)) {
+    return configCache.get(cacheKey)!;
   }
   
-  // Load from file
+  // Load from file - check dataDir first (user customizations), then installDir (defaults)
   let fileConfig: Partial<ConverterConfig> = {};
-  try {
-    const cfgPath = path.resolve(dir, 'config/md-mapping.json');
-    if (fs.existsSync(cfgPath)) {
-      const raw = fs.readFileSync(cfgPath, 'utf8');
-      fileConfig = JSON.parse(raw);
+  
+  // Try dataDir/md-mapping.json first (user customizations)
+  if (currentDataDir) {
+    try {
+      const userCfgPath = path.resolve(currentDataDir, 'md-mapping.json');
+      if (fs.existsSync(userCfgPath)) {
+        const raw = fs.readFileSync(userCfgPath, 'utf8');
+        fileConfig = JSON.parse(raw);
+      }
+    } catch (err) {
+      // Ignore errors, try installDir next
     }
-  } catch (err) {
-    // Ignore errors, use defaults
+  }
+  
+  // Fall back to installDir/config/md-mapping.json if no user config found
+  if (Object.keys(fileConfig).length === 0 && dir) {
+    try {
+      const defaultCfgPath = path.resolve(dir, 'config/md-mapping.json');
+      if (fs.existsSync(defaultCfgPath)) {
+        const raw = fs.readFileSync(defaultCfgPath, 'utf8');
+        fileConfig = JSON.parse(raw);
+      }
+    } catch (err) {
+      // Ignore errors, use defaults
+    }
   }
   
   // Merge elementSpacing: for each element type, merge default with file override
@@ -125,7 +160,7 @@ export function loadConfig(installDir?: string): ConverterConfig {
   };
   
   // Cache and return
-  configCache.set(dir, merged);
+  configCache.set(cacheKey, merged);
   return merged;
 }
 

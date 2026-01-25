@@ -19,14 +19,21 @@ import { runSetupWizard, isSetupNeeded } from './commands/setupWizard';
 import { authorize } from './commands/authorize';
 import { registerSettings } from './services/settings';
 import { startBackgroundPoller, registerPollerSettingsListener } from './services/backgroundPoller';
+import { setInstallDir, setDataDir } from './converters/config';
 
 // Get plugin directories
 let _installDir: string = '';
 let _dataDir: string = '';
 
 async function getDirs(): Promise<{ installDir: string; dataDir: string }> {
-  if (!_installDir) _installDir = (await joplin.plugins.installationDir()) || '';
-  if (!_dataDir) _dataDir = (await joplin.plugins.dataDir()) || '';
+  if (!_installDir) {
+    _installDir = (await joplin.plugins.installationDir()) || '';
+    setInstallDir(_installDir);
+  }
+  if (!_dataDir) {
+    _dataDir = (await joplin.plugins.dataDir()) || '';
+    setDataDir(_dataDir);
+  }
   return { installDir: _installDir, dataDir: _dataDir };
 }
 
