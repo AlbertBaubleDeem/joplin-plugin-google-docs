@@ -240,6 +240,12 @@ const pluginConfig = { ...baseConfig, entry: './src/index.ts',
 						],
 					},
 				},
+				// Copy config folder for user customization
+				{
+					from: 'config/**/*',
+					context: path.resolve(__dirname),
+					to: path.resolve(__dirname, 'dist'),
+				},
 			],
 		}),
 	] };

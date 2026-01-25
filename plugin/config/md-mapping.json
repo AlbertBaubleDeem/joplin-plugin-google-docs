@@ -1,28 +1,30 @@
 {
   "title": { "useTitle": true, "source": "first_line" },
   "subtitle": { "mode": "italic" },
-  "headings": {
-    "h1": "HEADING_1",
-    "h2": "HEADING_2",
-    "h3": "HEADING_3",
-    "default": "NORMAL_TEXT"
-  },
-  "inline": {
-    "bold": { "marker": "**", "textStyle": { "bold": true } },
-    "italic": { "marker": "*", "textStyle": { "italic": true } }
-  },
   "code": {
     "inline": { "marker": "`" },
-    "block": true,
+    "block": { "detect": true, "marker": "```" },
     "monoFont": "Roboto Mono"
   },
-  "paragraph": {
-    "blockquote": {
-      "prefix": ">",
-      "paragraphStyle": { "indentStart": { "magnitude": 18, "unit": "PT" } }
-    }
+  "mdPrefixes": {
+    "TITLE": "# ",
+    "HEADING_1": "# ",
+    "HEADING_2": "## ",
+    "HEADING_3": "### ",
+    "HEADING_4": "#### ",
+    "HEADING_5": "##### ",
+    "HEADING_6": "###### "
   },
   "elementSpacing": {
+    "title": {},
+    "subtitle": {},
+    "heading_1": {},
+    "heading_2": {},
+    "heading_3": {},
+    "heading_4": {},
+    "heading_5": {},
+    "heading_6": {},
+    "paragraph": {},
     "code_block": { "spaceBelow": 12 },
     "code_lang_label": { "spaceAbove": 0, "spaceBelow": 6 },
     "callout": { "spaceAbove": 8, "spaceBelow": 8 }
