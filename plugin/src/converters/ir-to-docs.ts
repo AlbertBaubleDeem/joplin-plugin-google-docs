@@ -63,16 +63,20 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
       }
     }
     
-    // Insert blank line between consecutive code blocks to prevent visual merging
+    // Insert blank line between consecutive code blocks to prevent visual merging (configurable)
     if (isCodeBlock && prevWasCodeBlock) {
-      // Add empty paragraph (just a newline) as separator
-      paraRanges.push({
-        start: cursor,
-        end: cursor,
-        style: 'NORMAL_TEXT',
-      });
-      plain += '\n';
-      cursor += 1;
+      const codeBlockSpacing = getElementSpacing('code_block', installDir);
+      // Only insert separator if configured (defaults to true)
+      if (codeBlockSpacing.insertSeparatorBetweenConsecutive !== false) {
+        // Add empty paragraph (just a newline) as separator
+        paraRanges.push({
+          start: cursor,
+          end: cursor,
+          style: 'NORMAL_TEXT',
+        });
+        plain += '\n';
+        cursor += 1;
+      }
     }
     
     const { text, ranges } = paragraphToTextAndRanges(para, cursor);

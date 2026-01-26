@@ -25,7 +25,7 @@
     "heading_5": {},
     "heading_6": {},
     "paragraph": {},
-    "code_block": { "spaceBelow": 12 },
+    "code_block": { "spaceBelow": 12, "insertSeparatorBetweenConsecutive": true },
     "code_lang_label": { "spaceAbove": 0, "spaceBelow": 6 },
     "callout": { "spaceAbove": 8, "spaceBelow": 8 }
   }

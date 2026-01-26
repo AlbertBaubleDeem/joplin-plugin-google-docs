@@ -54,6 +54,8 @@ export type ElementSpacing = {
   spaceAbove?: number;
   /** Space below paragraph in points */
   spaceBelow?: number;
+  /** Insert empty paragraph between consecutive elements of this type (default: true for code_block) */
+  insertSeparatorBetweenConsecutive?: boolean;
 };
 
 /**

@@ -50,7 +50,7 @@ const DEFAULT_ELEMENT_SPACING: Record<string, ElementSpacing> = {
   heading_6: {},
   paragraph: {},
   // Custom styled elements - explicit spacing
-  code_block: { spaceBelow: 12 },
+  code_block: { spaceBelow: 12, insertSeparatorBetweenConsecutive: true },
   code_lang_label: { spaceAbove: 0, spaceBelow: 6 },
   callout: { spaceAbove: 8, spaceBelow: 8 },
 };
