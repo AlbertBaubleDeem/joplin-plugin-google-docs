@@ -123,12 +123,12 @@ function tokenToParagraphs(
     case 'paragraph': {
       // Check if this paragraph is a callout placeholder
       const paraToken = token as Tokens.Paragraph;
-      // Use 'text' property (clean text content) rather than 'raw' (includes markdown artifacts)
-      const paragraphText = paraToken.text?.trim() || '';
+      // Use 'raw' property (original source text) for reliable placeholder matching
+      const rawText = paraToken.raw?.trim() || '';
       
       // Check if it's a callout placeholder
-      if (paragraphText.startsWith(CALLOUT_PLACEHOLDER_PREFIX) && paragraphText.endsWith('%%')) {
-        const callout = calloutMap.get(paragraphText);
+      if (rawText.startsWith(CALLOUT_PLACEHOLDER_PREFIX) && rawText.endsWith('%%')) {
+        const callout = calloutMap.get(rawText);
         if (callout) {
           debug('md-to-ir', 'converting-callout-placeholder', { type: callout.type });
           // Parse the callout content as markdown to get styled spans
