@@ -23,10 +23,9 @@ const CALLOUT_BLOCK_REGEX = new RegExp(
 
 /**
  * Placeholder prefix used to mark callout positions in the markdown.
- * Uses angle brackets and colons to avoid being interpreted as Markdown formatting.
- * (Underscores would be parsed as emphasis markers)
+ * Uses double percent signs which have no special meaning in Markdown or HTML.
  */
-const CALLOUT_PLACEHOLDER_PREFIX = '<<<CALLOUT:';
+const CALLOUT_PLACEHOLDER_PREFIX = '%%CALLOUT:';
 
 /**
  * Extracted callout with its content and type.
@@ -46,7 +45,7 @@ function extractCallouts(markdown: string): { markdown: string; callouts: Extrac
   let calloutIndex = 0;
   
   const modifiedMarkdown = markdown.replace(CALLOUT_BLOCK_REGEX, (match, type, content) => {
-    const placeholderId = `${CALLOUT_PLACEHOLDER_PREFIX}${calloutIndex}>>>`;
+    const placeholderId = `${CALLOUT_PLACEHOLDER_PREFIX}${calloutIndex}%%`;
     callouts.push({
       type: type.toLowerCase() as CalloutType,
       content: content.trim(),
@@ -128,7 +127,7 @@ function tokenToParagraphs(
       const paragraphText = paraToken.text?.trim() || '';
       
       // Check if it's a callout placeholder
-      if (paragraphText.startsWith(CALLOUT_PLACEHOLDER_PREFIX) && paragraphText.endsWith('>>>')) {
+      if (paragraphText.startsWith(CALLOUT_PLACEHOLDER_PREFIX) && paragraphText.endsWith('%%')) {
         const callout = calloutMap.get(paragraphText);
         if (callout) {
           debug('md-to-ir', 'converting-callout-placeholder', { type: callout.type });
