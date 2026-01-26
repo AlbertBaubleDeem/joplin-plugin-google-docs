@@ -70,14 +70,46 @@ let currentDataDir: string | undefined;
  */
 export function setInstallDir(installDir: string): void {
   currentInstallDir = installDir;
+  
+  // Try to copy default config if dataDir was already set
+  ensureUserConfig();
 }
 
 /**
  * Set the data directory for loading user customizations.
  * Call this once at plugin initialization.
+ * 
+ * If md-mapping.json doesn't exist in dataDir, copies the default from installDir.
  */
 export function setDataDir(dataDir: string): void {
   currentDataDir = dataDir;
+  
+  // Auto-copy default config to dataDir if it doesn't exist
+  ensureUserConfig();
+}
+
+/**
+ * Ensure the user config file exists in dataDir.
+ * Copies from installDir/config/md-mapping.json if not present.
+ */
+function ensureUserConfig(): void {
+  if (!currentDataDir || !currentInstallDir) {
+    return;
+  }
+  
+  const userCfgPath = path.resolve(currentDataDir, 'md-mapping.json');
+  const defaultCfgPath = path.resolve(currentInstallDir, 'config/md-mapping.json');
+  
+  // Only copy if user config doesn't exist and default exists
+  if (!fs.existsSync(userCfgPath) && fs.existsSync(defaultCfgPath)) {
+    try {
+      const defaultContent = fs.readFileSync(defaultCfgPath, 'utf8');
+      fs.writeFileSync(userCfgPath, defaultContent, 'utf8');
+      console.log('[gdocs] Created user config at', userCfgPath);
+    } catch (err) {
+      console.warn('[gdocs] Failed to copy default config to dataDir:', err);
+    }
+  }
 }
 
 /**
