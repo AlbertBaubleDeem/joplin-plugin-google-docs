@@ -53,7 +53,8 @@ function extractCallouts(markdown: string): { markdown: string; callouts: Extrac
     });
     calloutIndex++;
     debug('md-to-ir', 'extracted-callout', { type, contentPreview: content.substring(0, 50) });
-    return placeholderId;
+    // Wrap placeholder with newlines to ensure it becomes its own paragraph
+    return `\n\n${placeholderId}\n\n`;
   });
   
   return { markdown: modifiedMarkdown, callouts };
