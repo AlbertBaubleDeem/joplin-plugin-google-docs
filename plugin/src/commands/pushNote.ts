@@ -99,9 +99,19 @@ async function executePush(
   const mdRaw: string = String(note.body ?? '');
   debugLog(`Note body length: ${mdRaw.length}`);
   
+  // Check if GCS is configured BEFORE conversion
+  // This determines whether we process images or preserve them as markdown
+  const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
+  const processImages_flag = !!gcsBucketName;
+  debugLog(`GCS bucket: ${gcsBucketName || 'NOT CONFIGURED'}, processImages: ${processImages_flag}`);
+  console.log(`[pushNote] GCS bucket configured: ${gcsBucketName || 'NOT CONFIGURED'}`);
+  
   // Convert Markdown to plain text, style ranges, image positions, and list ranges
-  // The converter now also extracts images from markdown and tracks list ranges
-  const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { installDir });
+  // When GCS is not configured, images are preserved as markdown text (no placeholder extraction)
+  const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { 
+    installDir, 
+    processImages: processImages_flag 
+  });
 
   debugLog(`Converted: ${mdRaw.length} chars -> ${plain.length} plain, ${imageRanges.length} images, ${listRanges.length} list ranges`);
   console.log(`[pushNote] Converted markdown: ${mdRaw.length} chars -> ${plain.length} plain chars`);
@@ -110,11 +120,6 @@ async function executePush(
     debugLog( `Image resources: ${JSON.stringify(imageRanges.map(r => r.resourceId))}`);
     console.log(`[pushNote] Image resources:`, imageRanges.map(r => r.resourceId));
   }
-
-  // Check if we have images to process and GCS is configured
-  const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
-  debugLog( `GCS bucket: ${gcsBucketName || 'NOT CONFIGURED'}`);
-  console.log(`[pushNote] GCS bucket configured: ${gcsBucketName || 'NOT CONFIGURED'}`);
   
   let uploadedObjects: GCSUploadResult[] = [];
   let resourceIdToUrl = new Map<string, string>();
@@ -146,12 +151,21 @@ async function executePush(
   }
 
   // Get current doc state to obtain revisionId and endIndex
-  const docRes = await docs.documents.get({ documentId: fileId });
-  const revisionId: string = String((docRes.data as any).revisionId || '');
-  const body = (docRes.data as any).body || {};
+  // Use includeTabsContent to handle documents with tabs correctly
+  const docRes = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
+  const docResData = docRes.data as any;
+  const revisionId: string = String(docResData.revisionId || '');
+  
+  // Get body from tabs if present, otherwise from main body
+  let body = docResData.body || {};
+  const mainBodyEndIndex = body.content?.length ? Number(body.content[body.content.length - 1].endIndex || 1) : 1;
+  if (docResData.tabs?.length > 0) {
+    const firstTab = docResData.tabs[0];
+    body = firstTab?.documentTab?.body || firstTab?.body || body;
+  }
   const content = Array.isArray(body.content) ? body.content : [];
   const endIndex = content.length ? Number(content[content.length - 1].endIndex || 1) : 1;
-
+  
   // Build content replacement requests
   const requests: any[] = [];
   // Avoid empty delete range (start==end). For empty docs endIndex is often 2.
@@ -170,12 +184,34 @@ async function executePush(
   });
 
   // Read new revisionId and document state after text insertion
-  let afterRes = await docs.documents.get({ documentId: fileId });
-  let newRevisionId: string = String((afterRes.data as any).revisionId || '');
-  const bodyAfterInsert = (afterRes.data as any).body || {};
+  // Use includeTabsContent to handle documents with tabs correctly
+  let afterRes = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
+  const afterResData = afterRes.data as any;
+  let newRevisionId: string = String(afterResData.revisionId || '');
+  
+  // Get body from tabs if present, otherwise from main body
+  let bodyAfterInsert = afterResData.body || {};
+  if (afterResData.tabs?.length > 0) {
+    const firstTab = afterResData.tabs[0];
+    bodyAfterInsert = firstTab?.documentTab?.body || firstTab?.body || bodyAfterInsert;
+  }
   const contentAfterInsert = Array.isArray(bodyAfterInsert.content) ? bodyAfterInsert.content : [];
-  const endIndexAfterInsert = contentAfterInsert.length ? Number(contentAfterInsert[contentAfterInsert.length - 1].endIndex || 1) : 1;
-
+  
+  // Find the actual last PARAGRAPH element (not section breaks or other structural elements)
+  // This gives us the true end of the writable body segment
+  let endIndexAfterInsert = 1;
+  for (let i = contentAfterInsert.length - 1; i >= 0; i--) {
+    const el = contentAfterInsert[i];
+    if (el.paragraph) {
+      endIndexAfterInsert = Number(el.endIndex || 1);
+      break;
+    }
+  }
+  // Fallback to last element if no paragraph found
+  if (endIndexAfterInsert === 1 && contentAfterInsert.length > 0) {
+    endIndexAfterInsert = Number(contentAfterInsert[contentAfterInsert.length - 1].endIndex || 1);
+  }
+  
   // Clear all existing bullet formatting before applying new styles
   // This prevents list formatting from persisting across pushes
   if (endIndexAfterInsert > 2) {
@@ -204,6 +240,8 @@ async function executePush(
 
   // Apply list bullets in a SEPARATE batchUpdate call
   // This avoids potential interactions between paragraph styles and bullet formatting
+  // Note: List ranges are already adjusted in ir-to-docs.ts to account for tab consumption
+  // by the createParagraphBullets API (tabs used for nesting are consumed by the API)
   if (listRanges.length > 0) {
     const bulletReqs = buildListBulletRequests(listRanges);
     if (bulletReqs.length) {

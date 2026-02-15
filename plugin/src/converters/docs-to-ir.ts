@@ -79,6 +79,7 @@ type ListsDict = Record<string, {
     nestingLevels?: Array<{
       glyphType?: string;
       glyphSymbol?: string;
+      glyphFormat?: string;
     }>;
   };
 }>;
@@ -188,6 +189,7 @@ function isAllMonospaceParagraph(elements: any[]): boolean {
 
 /**
  * Ordered list glyph types in Google Docs.
+ * Includes all known variations (with/without underscores).
  */
 const ORDERED_GLYPH_TYPES = [
   'DECIMAL',
@@ -196,7 +198,22 @@ const ORDERED_GLYPH_TYPES = [
   'UPPER_ALPHA',
   'UPPER_ROMAN',
   'ZERO_DECIMAL',
+  'ZERODECIMAL',
+  'NUMBER',
+  // Additional variations Google might return
+  'LOWER_ALPHA',
+  'LOWER_ROMAN',
 ];
+
+/**
+ * Check if a glyph format indicates an ordered list.
+ * glyphFormat like "%0." or "%1." indicates numbered list.
+ */
+function isOrderedGlyphFormat(glyphFormat?: string): boolean {
+  if (!glyphFormat) return false;
+  // Pattern like "%0.", "%1.", "%0.%1." etc. indicates ordered
+  return /%\d/.test(glyphFormat);
+}
 
 /**
  * Convert a document element to a Paragraph.
@@ -263,15 +280,31 @@ function elementToParagraph(
     const listDef = lists[listId];
     const nestingLevelDef = listDef?.listProperties?.nestingLevels?.[nestingLevel];
     const glyphType = nestingLevelDef?.glyphType;
+    const glyphFormat = nestingLevelDef?.glyphFormat;
+    const glyphSymbol = nestingLevelDef?.glyphSymbol;
     
-    // Determine list type from glyphType
-    const isOrdered = glyphType ? ORDERED_GLYPH_TYPES.includes(glyphType) : false;
+    // Determine list type from glyphType, with fallback to glyphFormat
+    // glyphType is most reliable, but some list presets may only have glyphFormat
+    let isOrdered = false;
+    if (glyphType) {
+      isOrdered = ORDERED_GLYPH_TYPES.includes(glyphType);
+    } else if (isOrderedGlyphFormat(glyphFormat)) {
+      // Fallback: glyphFormat like "%0." indicates ordered
+      isOrdered = true;
+    }
+    // If glyphSymbol is set (like "-" or "•"), it's definitely unordered
+    if (glyphSymbol) {
+      isOrdered = false;
+    }
+    
     const listType: 'ordered' | 'unordered' = isOrdered ? 'ordered' : 'unordered';
     
     debug('docs-to-ir', 'detected-list-item', { 
       listId, 
       nestingLevel, 
       glyphType, 
+      glyphFormat,
+      glyphSymbol,
       listType,
       text: spans[0].text.substring(0, 30) 
     });

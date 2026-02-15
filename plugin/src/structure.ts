@@ -8,6 +8,8 @@ export type DocLike = {
   documentId?: string;
   /** Inline objects dictionary for image support (from documents.get) */
   inlineObjects?: Record<string, any>;
+  /** Lists dictionary for list type detection (from documents.get) */
+  lists?: Record<string, any>;
 };
 
 export type TabInfo = { tabId: string; name?: string; index: number };
@@ -164,10 +166,18 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
       // Merge both (tab-level takes precedence)
       const inlineObjects = { ...docInlineObjects, ...tabInlineObjects };
       
+      // Get lists - check both tab level and document level for list type detection
+      const tabLists = picked?.documentTab?.lists 
+        || picked?.document?.lists 
+        || picked?.lists 
+        || {};
+      const docLists = tabsDoc?.data?.lists || {};
+      // Merge both (tab-level takes precedence)
+      const lists = { ...docLists, ...tabLists };
       
       usedTabTitle = picked?.tabProperties?.title || picked?.name || picked?.title || '';
       return { 
-        convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects }, 
+        convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects, lists }, 
         tabCount, 
         usedTabTitle 
       };
@@ -178,10 +188,12 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
   // Fallback to classic document body
   const plain = await docsClient.documents.get({ documentId });
   const inlineObjects = plain?.data?.inlineObjects || {};
+  const lists = plain?.data?.lists || {};
   const convertDoc: DocLike = { 
     title: plain?.data?.title, 
     body: { content: plain?.data?.body?.content || [] },
     inlineObjects,
+    lists,
   };
   return { convertDoc, tabCount, usedTabTitle };
 }

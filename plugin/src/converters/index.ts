@@ -78,12 +78,12 @@ import type { ParaRange, TextRange, ImageRange, ListRange, ConverterConfig } fro
  * and list ranges for bullet formatting.
  * 
  * @param mdRaw - The Markdown source
- * @param opts - Options including installDir for config
+ * @param opts - Options including installDir for config and processImages flag
  * @returns Plain text, style ranges, image ranges, and list ranges
  */
 export function convertMarkdownToPlainAndStyles(
   mdRaw: string,
-  opts?: { installDir?: string }
+  opts?: { installDir?: string; processImages?: boolean }
 ): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[]; imageRanges: ImageRange[]; listRanges: ListRange[] } {
   if (opts?.installDir) {
     setInstallDir(opts.installDir);
@@ -91,6 +91,17 @@ export function convertMarkdownToPlainAndStyles(
   
   const config = loadConfig(opts?.installDir);
   
+  // If processImages is false (or not set), skip image extraction entirely
+  // This preserves image markdown as-is in the document (for when GCS is not configured)
+  if (!opts?.processImages) {
+    // Simple path: no image processing, no placeholder complexity
+    const ir = markdownToIR(mdRaw, config);
+    const { plain, paraRanges, textRanges, listRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
+    
+    return { plain, paraRanges, textRanges, imageRanges: [], listRanges: listRanges || [] };
+  }
+  
+  // Full image processing path (when GCS is configured)
   // Step 1: Extract images and replace with placeholders
   const { markdownWithPlaceholders, images } = extractImages(mdRaw);
   
@@ -110,17 +121,6 @@ export function convertMarkdownToPlainAndStyles(
   
   // Step 5: Adjust list ranges for image placeholder removal
   const adjustedListRanges = adjustListRangesForImages(rawListRanges || [], plainWithPlaceholders, images);
-  
-  // Step 6: Safety clamp list ranges to prevent "endIndex must be less than segment end" errors
-  // After inserting at index 1, document body end = 1 + cleanPlainText.length + 1 (trailing newline)
-  // Our 1-based endIndex (0-based + 1) must be strictly less than body end
-  // Use aggressive clamping (-2) to account for any edge cases with trailing newlines
-  const maxListEndIndex = cleanPlainText.length > 1 ? cleanPlainText.length - 2 : 0;
-  for (const range of adjustedListRanges) {
-    if (range.endIndex > maxListEndIndex) {
-      range.endIndex = maxListEndIndex;
-    }
-  }
   
   return { plain: cleanPlainText, paraRanges: adjustedParaRanges, textRanges: adjustedTextRanges, imageRanges, listRanges: adjustedListRanges };
 }

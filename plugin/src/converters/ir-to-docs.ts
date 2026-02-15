@@ -12,6 +12,140 @@ import { debug } from './debug';
 import { getCalloutDefinition, CALLOUT_BY_TYPE } from './callout-config';
 
 /**
+ * Builder class for tracking and creating list ranges.
+ * 
+ * Encapsulates the complexity of:
+ * - Tracking current list state (type, start, end positions)
+ * - Counting nesting tabs (consumed by createParagraphBullets API)
+ * - Closing lists when type changes or document ends
+ * - Adjusting endIndex to account for tab consumption
+ */
+class ListRangeBuilder {
+  private ranges: ListRange[] = [];
+  private currentType: 'ordered' | 'unordered' | null = null;
+  private currentStart = 0;
+  private currentEnd = 0;
+  private maxNesting = 0;
+  private totalTabs = 0;
+  private cumulativeTabs = 0; // Total tabs across ALL lists - used for final clamping
+
+  /**
+   * Process a paragraph - starts, continues, or closes lists as needed.
+   * @param isListItem - whether this paragraph is a list item
+   * @param listType - the type of list (ordered/unordered)
+   * @param nestingLevel - nesting depth (0 = top level)
+   * @param startPosition - cursor position at start of this paragraph
+   * @param endPosition - cursor position at end of this paragraph (before newline)
+   */
+  processItem(
+    isListItem: boolean,
+    listType: 'ordered' | 'unordered' | undefined,
+    nestingLevel: number,
+    startPosition: number,
+    endPosition: number
+  ): void {
+    // Check if we need to close the current list
+    if (this.currentType !== null && (!isListItem || listType !== this.currentType)) {
+      this.closeCurrentList();
+    }
+
+    // If this is a list item, update tracking
+    if (isListItem) {
+      if (this.currentType === null) {
+        // Start a new list
+        this.currentType = listType || 'unordered';
+        this.currentStart = startPosition;
+        this.maxNesting = 0;
+        this.totalTabs = 0;
+      }
+
+      // Update end position and tab counts
+      this.currentEnd = endPosition;
+      if (nestingLevel > this.maxNesting) {
+        this.maxNesting = nestingLevel;
+      }
+      this.totalTabs += nestingLevel;
+    }
+  }
+
+  /**
+   * Close the current list and add it to ranges.
+   * Adjusts endIndex by subtracting maxNesting to prevent following content
+   * from being included in deeply nested lists.
+   */
+  private closeCurrentList(): void {
+    if (this.currentType === null) return;
+
+    // Accumulate tabs for final clamping calculation
+    this.cumulativeTabs += this.totalTabs;
+    
+    // Subtract maxNesting to prevent deeply nested lists from
+    // causing Google Docs to include following paragraphs as list items
+    const adjustedEnd = this.currentEnd - this.maxNesting;
+    
+    if (adjustedEnd > this.currentStart) {
+      this.ranges.push({
+        startIndex: this.currentStart,
+        endIndex: adjustedEnd,
+        listType: this.currentType,
+      });
+      debug('ir-to-docs', 'closed-list-range', {
+        startIndex: this.currentStart,
+        endIndex: adjustedEnd,
+        listType: this.currentType,
+        maxNesting: this.maxNesting,
+        totalTabs: this.totalTabs,
+        cumulativeTabs: this.cumulativeTabs,
+      });
+    }
+
+    // Reset per-list state (but keep cumulativeTabs)
+    this.currentType = null;
+    this.currentStart = 0;
+    this.currentEnd = 0;
+    this.maxNesting = 0;
+    this.totalTabs = 0;
+  }
+
+  /**
+   * Finalize and close any remaining open list.
+   * Call this after processing all paragraphs.
+   */
+  finalize(): void {
+    this.closeCurrentList();
+  }
+
+  /**
+   * Get the built list ranges.
+   */
+  getRanges(): ListRange[] {
+    return this.ranges;
+  }
+
+  /**
+   * Apply safety clamp to ensure no endIndex exceeds the API's effective segment end.
+   * The API consumes ALL tabs in the document, so we must subtract cumulativeTabs.
+   * @param plainLength - the length of the plain text being inserted
+   */
+  clampRanges(plainLength: number): void {
+    // The API segment end is reduced by ALL tabs in the document
+    // plainLength - 1 gives us the max 0-based index
+    // Then subtract cumulativeTabs to account for tab consumption
+    const effectiveMaxEndIndex = plainLength - 1 - this.cumulativeTabs;
+    
+    for (const range of this.ranges) {
+      if (range.endIndex > effectiveMaxEndIndex) {
+        debug('ir-to-docs', 'clamping-list-endIndex', {
+          from: range.endIndex,
+          to: effectiveMaxEndIndex,
+        });
+        range.endIndex = effectiveMaxEndIndex;
+      }
+    }
+  }
+}
+
+/**
  * Convert IR document to plain text with style ranges.
  * This is the primary function for the push (MD→Docs) direction.
  * 
@@ -25,45 +159,16 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   const paraRanges: ParaRange[] = [];
   const textRanges: TextRange[] = [];
   const calloutRanges: CalloutRange[] = [];
-  const listRanges: ListRange[] = [];
+  const listBuilder = new ListRangeBuilder();
   let plain = '';
   let cursor = 0;
   let prevWasCodeBlock = false;
-  
-  // List tracking state
-  let currentListType: 'ordered' | 'unordered' | null = null;
-  let currentListStart = 0;
-  let currentListEnd = 0;
-  let maxNestingInCurrentList = 0;
   
   for (let i = 0; i < doc.length; i++) {
     const para = doc[i];
     const isCodeBlock = para.type === 'code_block';
     const isCallout = para.type === 'callout';
     const isListItem = para.type === 'list_item';
-    
-    // Check if we need to close the current list range
-    if (currentListType !== null && (!isListItem || para.listType !== currentListType)) {
-      // Close the current list range
-      // Subtract maxNestingInCurrentList to prevent deeply nested lists from
-      // causing Google Docs to include following paragraphs as list items
-      const adjustedEndIndex = currentListEnd - maxNestingInCurrentList;
-      if (adjustedEndIndex > currentListStart) {
-        listRanges.push({
-          startIndex: currentListStart,
-          endIndex: adjustedEndIndex,
-          listType: currentListType,
-        });
-        debug('ir-to-docs', 'closed-list-range', { 
-          startIndex: currentListStart, 
-          endIndex: adjustedEndIndex, 
-          listType: currentListType,
-          maxNesting: maxNestingInCurrentList
-        });
-      }
-      currentListType = null;
-      maxNestingInCurrentList = 0;
-    }
     
     // Handle callout boxes - render as styled paragraph with symbol prefix
     if (isCallout && para.calloutType) {
@@ -121,13 +226,6 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
       const result = paragraphToTextAndRanges(para, cursor + tabPrefix.length);
       text = tabPrefix + result.text;
       ranges = result.ranges;
-      
-      // Start a new list range if needed
-      if (currentListType === null) {
-        currentListType = para.listType || 'unordered';
-        currentListStart = cursor;
-        maxNestingInCurrentList = 0;
-      }
     } else {
       const result = paragraphToTextAndRanges(para, cursor);
       text = result.text;
@@ -150,15 +248,14 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
     // Add text ranges with offset
     textRanges.push(...ranges);
     
-    // Update list end position to include full text (newline added separately)
-    if (isListItem) {
-      currentListEnd = paraEnd;
-      // Track max nesting level for later adjustment
-      const nestingLevel = para.nestingLevel || 0;
-      if (nestingLevel > maxNestingInCurrentList) {
-        maxNestingInCurrentList = nestingLevel;
-      }
-    }
+    // Track list items - handles starting, continuing, and closing lists
+    listBuilder.processItem(
+      isListItem,
+      para.listType,
+      para.nestingLevel || 0,
+      cursor,
+      paraEnd
+    );
     
     // Append to plain text with newline
     plain += text + '\n';
@@ -192,36 +289,13 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
     prevWasCodeBlock = isCodeBlock;
   }
   
-  // Close any remaining list range
-  // Apply same nesting adjustment as mid-document closures
-  const finalAdjustedEndIndex = currentListEnd - maxNestingInCurrentList;
-  if (currentListType !== null && finalAdjustedEndIndex > currentListStart) {
-    listRanges.push({
-      startIndex: currentListStart,
-      endIndex: finalAdjustedEndIndex,
-      listType: currentListType,
-    });
-    debug('ir-to-docs', 'closed-final-list-range', { 
-      startIndex: currentListStart, 
-      endIndex: finalAdjustedEndIndex, 
-      listType: currentListType,
-      maxNesting: maxNestingInCurrentList
-    });
-  }
+  // Finalize list builder - closes any remaining open list
+  listBuilder.finalize();
   
-  // Safety clamp: ensure no list range endIndex exceeds plain.length - 1
-  // This prevents "endIndex must be less than segment end" API errors
-  // when the list extends to the end of the document
-  const maxEndIndex = plain.length > 0 ? plain.length - 1 : 0;
-  for (const range of listRanges) {
-    if (range.endIndex > maxEndIndex) {
-      debug('ir-to-docs', 'clamping-list-endIndex', { 
-        from: range.endIndex, 
-        to: maxEndIndex 
-      });
-      range.endIndex = maxEndIndex;
-    }
-  }
+  // Clamp ranges based on plain.length and cumulative tabs consumed by API
+  listBuilder.clampRanges(plain.length);
+  
+  const listRanges = listBuilder.getRanges();
   
   const result = { plain, paraRanges, textRanges, calloutRanges, listRanges };
   debug('ir-to-docs', 'result', result);
