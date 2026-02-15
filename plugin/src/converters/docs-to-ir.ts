@@ -8,16 +8,19 @@
  * - Text runs with styles (bold, italic, code, links)
  * - Inline images (via inlineObjectElement with description for roundtrip)
  * - Paragraph styles (headings, code blocks, etc.)
+ * - Native Google Docs lists (ordered and unordered with nesting)
  */
 
 import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig, CalloutType } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
-import { CALLOUT_DEFINITIONS, matchCalloutByColor, getCalloutTypeBySymbol } from './callout-config';
+import { CALLOUT_DEFINITIONS, matchCalloutByColor } from './callout-config';
 
-/**
- * Google Docs text style structure (subset).
- */
+// =============================================================================
+// TYPES
+// =============================================================================
+
+/** Google Docs text style structure (subset). */
 type DocsTextStyle = {
   bold?: boolean;
   italic?: boolean;
@@ -25,55 +28,17 @@ type DocsTextStyle = {
   link?: { url?: string };
 };
 
-/**
- * Google Docs paragraph style structure (subset).
- */
+/** Google Docs paragraph style structure (subset). */
 type DocsParagraphStyle = {
   namedStyleType?: string;
   shading?: any;
   borderLeft?: any;
 };
 
-/**
- * Google Docs inline object dictionary (from top-level inlineObjects).
- * Maps objectId -> inlineObject data.
- */
+/** Google Docs inline object dictionary. Maps objectId -> inlineObject data. */
 type InlineObjectsDict = Record<string, any>;
 
-/**
- * Merge consecutive code_block paragraphs into a single code block.
- * This handles native GDoc all-monospace code blocks (Building Block > Code block).
- * 
- * Important: Only merge code blocks that are DIRECTLY adjacent.
- * Code blocks separated by ANY other paragraph (including empty separators) stay separate.
- * This preserves intentional separation between distinct code blocks.
- */
-function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
-  if (paragraphs.length === 0) return [];
-  
-  const result: Paragraph[] = [];
-  
-  for (const para of paragraphs) {
-    const last = result[result.length - 1];
-    
-    // If both current and previous are code blocks, AND the current one has NO separator flag, merge them
-    // Code blocks with _hasPrecedingSeparator should NOT be merged with the previous
-    if (last?.type === 'code_block' && para.type === 'code_block' && !(para as any)._hasPrecedingSeparator) {
-      // Add a newline span between the merged content
-      last.spans.push({ text: '\n' }, ...para.spans);
-      debug('docs-to-ir', 'merged-code-block', para.spans[0]?.text?.substring(0, 20));
-    } else {
-      result.push(para);
-    }
-  }
-  
-  return result;
-}
-
-/**
- * Google Docs lists dictionary structure.
- * Maps listId -> list properties with nesting levels.
- */
+/** Google Docs lists dictionary. Maps listId -> list properties with nesting levels. */
 type ListsDict = Record<string, {
   listProperties?: {
     nestingLevels?: Array<{
@@ -84,108 +49,18 @@ type ListsDict = Record<string, {
   };
 }>;
 
-/**
- * Convert a Google Docs document to IR.
- * 
- * @param doc - The document object from documents.get API (should include inlineObjects for image support)
- * @param config - Optional converter configuration
- * @returns The IR document
- */
-export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
-  const cfg = config || loadConfig();
-  const body = doc?.body?.content || [];
-  const inlineObjects: InlineObjectsDict = doc?.inlineObjects || {};
-  const lists: ListsDict = doc?.lists || {};
-  
-  debug('docs-to-ir', 'input', body);
-  debug('docs-to-ir', 'inlineObjects-count', Object.keys(inlineObjects).length);
-  debug('docs-to-ir', 'lists-count', Object.keys(lists).length);
-  
-  const paragraphs: Paragraph[] = [];
-  let lastWasEmpty = false;
-  
-  for (const element of body) {
-    const result = elementToParagraph(element, cfg, inlineObjects, lists);
-    
-    if (result === null) {
-      // Empty paragraph - mark that the next paragraph has a separator before it
-      lastWasEmpty = true;
-      continue;
-    }
-    
-    // If there was an empty paragraph before this one, flag it
-    // This prevents merging code blocks that are intentionally separated
-    if (lastWasEmpty) {
-      (result as any)._hasPrecedingSeparator = true;
-      lastWasEmpty = false;
-    }
-    
-    paragraphs.push(result);
-  }
-  
-  // Merge consecutive code blocks into single code blocks
-  // (respects _hasPrecedingSeparator flag to keep separated blocks apart)
-  const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs);
-  
-  // Extract language labels and associate with preceding code blocks
-  const finalParagraphs = extractLanguageLabels(mergedParagraphs, body);
-  
-  debug('docs-to-ir', 'result', finalParagraphs);
-  return finalParagraphs;
-}
+/** Result of list type detection. */
+type ListDetectionResult = {
+  isListItem: true;
+  listType: 'ordered' | 'unordered';
+  nestingLevel: number;
+} | {
+  isListItem: false;
+};
 
-/**
- * Check if a paragraph has all text runs in monospace font.
- * This indicates a native Google Docs code block (Building Block > Code block).
- * 
- * Logic:
- * - Runs with actual words (non-whitespace) MUST have explicit monospace font
- * - Runs with only whitespace (spaces between words) can have EMPTY font
- * - If any run with words has EMPTY or non-monospace font, it's not a code block
- * 
- * This distinguishes:
- * - Inline code + text: "normal text " (EMPTY, has words) + "code" (mono) → NOT code block
- * - Native GDoc code block: "code" (mono) + " " (EMPTY, whitespace) + "more" (mono) → IS code block
- */
-/**
- * Check if a paragraph has all text runs in monospace font.
- * This indicates a native Google Docs code block (Building Block > Code block).
- * 
- * Logic:
- * - Filter to runs with visible content (excluding PUA markers and whitespace)
- * - All visible runs must have explicit monospace font
- * - Google Docs uses Private Use Area characters (U+E000-U+F8FF) as internal
- *   markers for native code blocks - these are filtered out
- */
-function isAllMonospaceParagraph(elements: any[]): boolean {
-  // Get text runs with VISIBLE content only
-  // Filter out: empty, whitespace-only, and Private Use Area characters
-  const textRuns = elements.filter(e => {
-    const content = e.textRun?.content;
-    if (!content) return false;
-    // Remove PUA characters and whitespace, check if anything visible remains
-    const visibleContent = content.replace(/[\uE000-\uF8FF\s]/g, '');
-    return visibleContent.length > 0;
-  });
-  
-  if (textRuns.length === 0) return false;
-  
-  let hasMonospace = false;
-  
-  for (const e of textRuns) {
-    const font = e.textRun?.textStyle?.weightedFontFamily?.fontFamily || '';
-    const isMonospace = /mono|courier/i.test(font);
-    
-    if (isMonospace) {
-      hasMonospace = true;
-    } else {
-      // Visible content without monospace font - not a code block
-      return false;
-    }
-  }
-  
-  return hasMonospace;
-}
+// =============================================================================
+// CONSTANTS
+// =============================================================================
 
 /**
  * Ordered list glyph types in Google Docs.
@@ -200,10 +75,32 @@ const ORDERED_GLYPH_TYPES = [
   'ZERO_DECIMAL',
   'ZERODECIMAL',
   'NUMBER',
-  // Additional variations Google might return
   'LOWER_ALPHA',
   'LOWER_ROMAN',
 ];
+
+// =============================================================================
+// UTILITY HELPERS
+// =============================================================================
+
+/** Escape special regex characters in a string. */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Extract Joplin resource ID from a GCS URL.
+ * Expected format: https://storage.googleapis.com/{bucket}/joplin_img_{resourceId}_{timestamp}.{ext}
+ */
+function extractResourceIdFromUrl(url: string): string | null {
+  if (!url) return null;
+  const match = url.match(/joplin_img_([a-fA-F0-9]{32})_\d+\.\w+/);
+  return match?.[1] || null;
+}
+
+// =============================================================================
+// LIST DETECTION
+// =============================================================================
 
 /**
  * Check if a glyph format indicates an ordered list.
@@ -211,120 +108,92 @@ const ORDERED_GLYPH_TYPES = [
  */
 function isOrderedGlyphFormat(glyphFormat?: string): boolean {
   if (!glyphFormat) return false;
-  // Pattern like "%0.", "%1.", "%0.%1." etc. indicates ordered
   return /%\d/.test(glyphFormat);
 }
 
 /**
- * Convert a document element to a Paragraph.
+ * Detect if a paragraph is a list item and determine its type.
+ * 
+ * @param bullet - The bullet property from the paragraph
+ * @param lists - The lists dictionary from the document
+ * @returns Detection result with list type and nesting level if it's a list item
  */
-function elementToParagraph(
-  element: any,
-  config: ConverterConfig,
-  inlineObjects: InlineObjectsDict,
-  lists: ListsDict
-): Paragraph | null {
-  const p = element?.paragraph;
-  if (!p?.elements?.length) return null;
+function detectListItem(bullet: any, lists: ListsDict): ListDetectionResult {
+  if (!bullet) {
+    return { isListItem: false };
+  }
+
+  const listId = bullet.listId;
+  const nestingLevel = bullet.nestingLevel || 0;
   
-  const paragraphStyle: DocsParagraphStyle = p.paragraphStyle || {};
+  // Get list definition to determine if ordered or unordered
+  const listDef = lists[listId];
+  const nestingLevelDef = listDef?.listProperties?.nestingLevels?.[nestingLevel];
+  const glyphType = nestingLevelDef?.glyphType;
+  const glyphFormat = nestingLevelDef?.glyphFormat;
+  const glyphSymbol = nestingLevelDef?.glyphSymbol;
   
-  // Determine paragraph type from style
-  let { type, level, calloutType } = determineParagraphType(paragraphStyle, config);
-  
-  // Check for native Google Docs code block (all-monospace paragraph)
-  // Override type to code_block if detected
-  if (type === 'paragraph' && isAllMonospaceParagraph(p.elements)) {
-    type = 'code_block';
-    debug('docs-to-ir', 'detected-native-code-block', p.elements[0]?.textRun?.content?.substring(0, 30));
+  // Determine list type:
+  // 1. glyphType is most reliable
+  // 2. Fallback to glyphFormat for some list presets
+  // 3. glyphSymbol (like "-" or "•") indicates unordered
+  let isOrdered = false;
+  if (glyphType) {
+    isOrdered = ORDERED_GLYPH_TYPES.includes(glyphType);
+  } else if (isOrderedGlyphFormat(glyphFormat)) {
+    isOrdered = true;
+  }
+  if (glyphSymbol) {
+    isOrdered = false;
   }
   
-  // Extract spans from text runs and inline objects
-  const spans: StyledSpan[] = [];
+  const listType: 'ordered' | 'unordered' = isOrdered ? 'ordered' : 'unordered';
   
-  for (const el of p.elements) {
-    const span = elementToSpan(el, type === 'code_block', config, inlineObjects);
-    if (span) {
-      spans.push(span);
-    }
-  }
+  debug('docs-to-ir', 'detected-list-item', { 
+    listId, nestingLevel, glyphType, glyphFormat, glyphSymbol, listType
+  });
   
-  // Skip empty paragraphs
-  if (spans.length === 0 || spans.every(s => s.text.trim() === '')) {
-    return null;
-  }
-  
-  // Handle callout: strip the symbol prefix from the content
-  if (type === 'callout' && calloutType && spans.length > 0) {
-    // Get the expected symbol for this callout type
-    const calloutDef = CALLOUT_DEFINITIONS.find(d => d.type === calloutType);
-    if (calloutDef) {
-      const firstSpan = spans[0];
-      const symbolPattern = new RegExp(`^${escapeRegex(calloutDef.symbol)}\\s*`);
-      if (symbolPattern.test(firstSpan.text)) {
-        // Strip the symbol prefix
-        firstSpan.text = firstSpan.text.replace(symbolPattern, '');
-        debug('docs-to-ir', 'stripped-callout-symbol', { calloutType, symbol: calloutDef.symbol });
-      }
-    }
-    return { type, calloutType, spans };
-  }
-  
-  // Detect native Google Docs bullet lists
-  const bullet = p.bullet;
-  if (bullet && spans.length > 0) {
-    const listId = bullet.listId;
-    const nestingLevel = bullet.nestingLevel || 0;
-    
-    // Get list definition to determine if ordered or unordered
-    const listDef = lists[listId];
-    const nestingLevelDef = listDef?.listProperties?.nestingLevels?.[nestingLevel];
-    const glyphType = nestingLevelDef?.glyphType;
-    const glyphFormat = nestingLevelDef?.glyphFormat;
-    const glyphSymbol = nestingLevelDef?.glyphSymbol;
-    
-    // Determine list type from glyphType, with fallback to glyphFormat
-    // glyphType is most reliable, but some list presets may only have glyphFormat
-    let isOrdered = false;
-    if (glyphType) {
-      isOrdered = ORDERED_GLYPH_TYPES.includes(glyphType);
-    } else if (isOrderedGlyphFormat(glyphFormat)) {
-      // Fallback: glyphFormat like "%0." indicates ordered
-      isOrdered = true;
-    }
-    // If glyphSymbol is set (like "-" or "•"), it's definitely unordered
-    if (glyphSymbol) {
-      isOrdered = false;
-    }
-    
-    const listType: 'ordered' | 'unordered' = isOrdered ? 'ordered' : 'unordered';
-    
-    debug('docs-to-ir', 'detected-list-item', { 
-      listId, 
-      nestingLevel, 
-      glyphType, 
-      glyphFormat,
-      glyphSymbol,
-      listType,
-      text: spans[0].text.substring(0, 30) 
-    });
-    
-    return { 
-      type: 'list_item', 
-      listType,
-      nestingLevel,
-      spans 
-    };
-  }
-  
-  return { type, level, spans };
+  return { isListItem: true, listType, nestingLevel };
 }
 
+// =============================================================================
+// STYLE DETECTION
+// =============================================================================
+
 /**
- * Escape special regex characters in a string.
+ * Check if a paragraph has all text runs in monospace font.
+ * This indicates a native Google Docs code block (Building Block > Code block).
+ * 
+ * Logic:
+ * - Filter to runs with visible content (excluding PUA markers and whitespace)
+ * - All visible runs must have explicit monospace font
+ * - Google Docs uses Private Use Area characters (U+E000-U+F8FF) as internal markers
  */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function isAllMonospaceParagraph(elements: any[]): boolean {
+  // Get text runs with VISIBLE content only
+  const textRuns = elements.filter(e => {
+    const content = e.textRun?.content;
+    if (!content) return false;
+    // Remove PUA characters and whitespace, check if anything visible remains
+    const visibleContent = content.replace(/[\uE000-\uF8FF\s]/g, '');
+    return visibleContent.length > 0;
+  });
+  
+  if (textRuns.length === 0) return false;
+  
+  let hasMonospace = false;
+  for (const e of textRuns) {
+    const font = e.textRun?.textStyle?.weightedFontFamily?.fontFamily || '';
+    const isMonospace = /mono|courier/i.test(font);
+    
+    if (isMonospace) {
+      hasMonospace = true;
+    } else {
+      return false; // Visible content without monospace font
+    }
+  }
+  
+  return hasMonospace;
 }
 
 /**
@@ -376,137 +245,8 @@ function determineParagraphType(
 }
 
 /**
- * Convert a Google Docs element (textRun or inlineObjectElement) to a StyledSpan.
- */
-function elementToSpan(
-  element: any,
-  isCodeBlock: boolean,
-  config: ConverterConfig,
-  inlineObjects: InlineObjectsDict
-): StyledSpan | null {
-  // Handle inline image objects
-  if (element?.inlineObjectElement) {
-    return inlineObjectToSpan(element.inlineObjectElement, inlineObjects);
-  }
-  
-  // Handle text runs
-  const textRun = element?.textRun;
-  if (!textRun?.content) return null;
-  
-  // Normalize content
-  let text = textRun.content
-    // Remove trailing newlines (Docs adds these to runs)
-    .replace(/\n+$/g, '')
-    // Replace vertical tab with newline (Docs quirky linebreak)
-    .replace(/\u000B/g, '\n')
-    // Remove Private Use Area chars (Docs variable markers)
-    .replace(/[\uE000-\uF8FF]/g, '');
-  
-  if (text.length === 0) return null;
-  
-  // Extract text style
-  const textStyle: DocsTextStyle = textRun.textStyle || {};
-  
-  // Check for monospace font (indicates inline code)
-  const fontFamily = textStyle.weightedFontFamily?.fontFamily || '';
-  const isMonospace = fontFamily.toLowerCase().includes('mono');
-  
-  // Build span
-  const span: StyledSpan = { text };
-  
-  // In code blocks, don't apply inline styles
-  if (isCodeBlock) {
-    span.code = true;
-    return span;
-  }
-  
-  // Apply styles
-  if (textStyle.bold) span.bold = true;
-  if (textStyle.italic) span.italic = true;
-  if (isMonospace) span.code = true;
-  if (textStyle.link?.url) span.link = textStyle.link.url;
-  
-  return span;
-}
-
-/**
- * Extract Joplin resource ID from a GCS URL.
- * 
- * Expected format: https://storage.googleapis.com/{bucket}/joplin_img_{resourceId}_{timestamp}.{ext}
- * Returns the resource ID or null if not a Joplin image.
- */
-function extractResourceIdFromUrl(url: string): string | null {
-  if (!url) return null;
-  
-  // Match pattern: joplin_img_{resourceId}_{timestamp}.{ext}
-  // Resource ID is 32 hex characters
-  const match = url.match(/joplin_img_([a-fA-F0-9]{32})_\d+\.\w+/);
-  if (match && match[1]) {
-    return match[1];
-  }
-  
-  return null;
-}
-
-/**
- * Convert an inline object element (image) to a StyledSpan.
- * 
- * Extracts the Joplin resource ID from the image's sourceUri (the GCS URL we uploaded)
- * and reconstructs the markdown image reference.
- * 
- * For images not from Joplin (no matching sourceUri pattern), outputs a placeholder.
- */
-function inlineObjectToSpan(
-  inlineObjectElement: any,
-  inlineObjects: InlineObjectsDict
-): StyledSpan | null {
-  const objectId = inlineObjectElement?.inlineObjectId;
-  if (!objectId) return null;
-  
-  // Look up the inline object in the dictionary
-  const inlineObject = inlineObjects[objectId];
-  if (!inlineObject) {
-    debug('docs-to-ir', 'missing-inline-object', objectId);
-    return { text: '[GDoc image]' };
-  }
-  
-  // Get the image properties
-  const embeddedObject = inlineObject?.inlineObjectProperties?.embeddedObject;
-  const imageProps = embeddedObject?.imageProperties || {};
-  const sourceUri = imageProps?.sourceUri || '';
-  const contentUri = imageProps?.contentUri || '';
-  const title = embeddedObject?.title || '';
-  const description = embeddedObject?.description || '';
-  
-  debug('docs-to-ir', 'inline-object', { objectId, sourceUri: sourceUri?.substring(0, 60), title });
-  
-  // Try to extract resource ID from sourceUri (the GCS URL we uploaded)
-  const resourceId = extractResourceIdFromUrl(sourceUri);
-  if (resourceId) {
-    // Found Joplin resource ID - reconstruct the markdown
-    // Use title as alt text if available, otherwise empty
-    const altText = title || description || '';
-    const markdown = altText ? `![${altText}](:/` + resourceId + ')' : `![](:/` + resourceId + ')';
-    debug('docs-to-ir', 'image-roundtrip', { objectId, resourceId, markdown });
-    return { text: markdown };
-  }
-  
-  // Fallback: images added directly in Google Docs (not from Joplin)
-  // These can't be displayed in Joplin since GDoc images require authentication
-  const altText = title ? `GDoc image: ${title}` : 'GDoc image';
-  debug('docs-to-ir', 'image-external', { objectId, altText, sourceUri: sourceUri?.substring(0, 40) });
-  return { text: `[${altText}]` };
-}
-
-/**
  * Check if a Google Docs paragraph element is a language label.
  * Language labels are small grey right-aligned text following a code block.
- * 
- * Detection criteria:
- * - Right-aligned (alignment: 'END')
- * - Small font size (around 8pt, checking for < 10pt)
- * - Grey color (RGB values around 0.8 each)
- * - Single word content (valid language identifier)
  */
 function isLanguageLabelElement(element: any): { isLabel: boolean; language?: string } {
   const p = element?.paragraph;
@@ -527,7 +267,6 @@ function isLanguageLabelElement(element: any): { isLabel: boolean; language?: st
   const content = (textRun.content || '').replace(/\n+$/g, '').trim();
   
   // Language names are typically single words (e.g., "bash", "python", "javascript")
-  // Allow alphanumeric, hyphen, plus for languages like "c++", "objective-c"
   if (!content || !/^[\w\-+#]+$/.test(content)) {
     return { isLabel: false };
   }
@@ -535,17 +274,14 @@ function isLanguageLabelElement(element: any): { isLabel: boolean; language?: st
   // Check text style for small font and grey color
   const textStyle = textRun.textStyle || {};
   
-  // Check font size (should be small, around 8pt)
   const fontSize = textStyle.fontSize?.magnitude;
   if (fontSize && fontSize >= 10) {
     return { isLabel: false };
   }
   
-  // Check for grey foreground color
   const fgColor = textStyle.foregroundColor?.color?.rgbColor;
   if (fgColor) {
     const { red = 0, green = 0, blue = 0 } = fgColor;
-    // Grey color should have similar RGB values, around 0.4-0.9 (darker grey at ~0.5)
     const isGrey = red > 0.3 && red < 1 && 
                    green > 0.3 && green < 1 && 
                    blue > 0.3 && blue < 1 &&
@@ -560,19 +296,200 @@ function isLanguageLabelElement(element: any): { isLabel: boolean; language?: st
   return { isLabel: true, language: content };
 }
 
+// =============================================================================
+// ELEMENT CONVERSION
+// =============================================================================
+
+/**
+ * Convert an inline object element (image) to a StyledSpan.
+ * Extracts the Joplin resource ID from the image's sourceUri.
+ */
+function inlineObjectToSpan(
+  inlineObjectElement: any,
+  inlineObjects: InlineObjectsDict
+): StyledSpan | null {
+  const objectId = inlineObjectElement?.inlineObjectId;
+  if (!objectId) return null;
+  
+  const inlineObject = inlineObjects[objectId];
+  if (!inlineObject) {
+    debug('docs-to-ir', 'missing-inline-object', objectId);
+    return { text: '[GDoc image]' };
+  }
+  
+  const embeddedObject = inlineObject?.inlineObjectProperties?.embeddedObject;
+  const imageProps = embeddedObject?.imageProperties || {};
+  const sourceUri = imageProps?.sourceUri || '';
+  const title = embeddedObject?.title || '';
+  const description = embeddedObject?.description || '';
+  
+  debug('docs-to-ir', 'inline-object', { objectId, sourceUri: sourceUri?.substring(0, 60), title });
+  
+  // Try to extract resource ID from sourceUri (the GCS URL we uploaded)
+  const resourceId = extractResourceIdFromUrl(sourceUri);
+  if (resourceId) {
+    const altText = title || description || '';
+    const markdown = altText ? `![${altText}](:/` + resourceId + ')' : `![](:/` + resourceId + ')';
+    debug('docs-to-ir', 'image-roundtrip', { objectId, resourceId, markdown });
+    return { text: markdown };
+  }
+  
+  // Fallback: images added directly in Google Docs (not from Joplin)
+  const altText = title ? `GDoc image: ${title}` : 'GDoc image';
+  debug('docs-to-ir', 'image-external', { objectId, altText, sourceUri: sourceUri?.substring(0, 40) });
+  return { text: `[${altText}]` };
+}
+
+/**
+ * Convert a Google Docs element (textRun or inlineObjectElement) to a StyledSpan.
+ */
+function elementToSpan(
+  element: any,
+  isCodeBlock: boolean,
+  config: ConverterConfig,
+  inlineObjects: InlineObjectsDict
+): StyledSpan | null {
+  // Handle inline image objects
+  if (element?.inlineObjectElement) {
+    return inlineObjectToSpan(element.inlineObjectElement, inlineObjects);
+  }
+  
+  // Handle text runs
+  const textRun = element?.textRun;
+  if (!textRun?.content) return null;
+  
+  // Normalize content
+  let text = textRun.content
+    .replace(/\n+$/g, '')           // Remove trailing newlines
+    .replace(/\u000B/g, '\n')       // Replace vertical tab with newline
+    .replace(/[\uE000-\uF8FF]/g, ''); // Remove Private Use Area chars
+  
+  if (text.length === 0) return null;
+  
+  const textStyle: DocsTextStyle = textRun.textStyle || {};
+  const fontFamily = textStyle.weightedFontFamily?.fontFamily || '';
+  const isMonospace = fontFamily.toLowerCase().includes('mono');
+  
+  const span: StyledSpan = { text };
+  
+  // In code blocks, don't apply inline styles
+  if (isCodeBlock) {
+    span.code = true;
+    return span;
+  }
+  
+  // Apply styles
+  if (textStyle.bold) span.bold = true;
+  if (textStyle.italic) span.italic = true;
+  if (isMonospace) span.code = true;
+  if (textStyle.link?.url) span.link = textStyle.link.url;
+  
+  return span;
+}
+
+// =============================================================================
+// PARAGRAPH CONVERSION
+// =============================================================================
+
+/**
+ * Convert a document element to a Paragraph.
+ */
+function elementToParagraph(
+  element: any,
+  config: ConverterConfig,
+  inlineObjects: InlineObjectsDict,
+  lists: ListsDict
+): Paragraph | null {
+  const p = element?.paragraph;
+  if (!p?.elements?.length) return null;
+  
+  const paragraphStyle: DocsParagraphStyle = p.paragraphStyle || {};
+  
+  // Determine base paragraph type from style
+  let { type, level, calloutType } = determineParagraphType(paragraphStyle, config);
+  
+  // Override to code_block if all-monospace paragraph detected
+  if (type === 'paragraph' && isAllMonospaceParagraph(p.elements)) {
+    type = 'code_block';
+    debug('docs-to-ir', 'detected-native-code-block', p.elements[0]?.textRun?.content?.substring(0, 30));
+  }
+  
+  // Extract spans from text runs and inline objects
+  const spans: StyledSpan[] = [];
+  for (const el of p.elements) {
+    const span = elementToSpan(el, type === 'code_block', config, inlineObjects);
+    if (span) {
+      spans.push(span);
+    }
+  }
+  
+  // Skip empty paragraphs
+  if (spans.length === 0 || spans.every(s => s.text.trim() === '')) {
+    return null;
+  }
+  
+  // Handle callout: strip the symbol prefix from the content
+  if (type === 'callout' && calloutType && spans.length > 0) {
+    const calloutDef = CALLOUT_DEFINITIONS.find(d => d.type === calloutType);
+    if (calloutDef) {
+      const symbolPattern = new RegExp(`^${escapeRegex(calloutDef.symbol)}\\s*`);
+      if (symbolPattern.test(spans[0].text)) {
+        spans[0].text = spans[0].text.replace(symbolPattern, '');
+        debug('docs-to-ir', 'stripped-callout-symbol', { calloutType, symbol: calloutDef.symbol });
+      }
+    }
+    return { type, calloutType, spans };
+  }
+  
+  // Handle list items
+  const listResult = detectListItem(p.bullet, lists);
+  if (listResult.isListItem) {
+    return { 
+      type: 'list_item', 
+      listType: listResult.listType,
+      nestingLevel: listResult.nestingLevel,
+      spans 
+    };
+  }
+  
+  return { type, level, spans };
+}
+
+// =============================================================================
+// POST-PROCESSING
+// =============================================================================
+
+/**
+ * Merge consecutive code_block paragraphs into a single code block.
+ * Only merges blocks that are DIRECTLY adjacent (no separator between them).
+ */
+function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
+  if (paragraphs.length === 0) return [];
+  
+  const result: Paragraph[] = [];
+  
+  for (const para of paragraphs) {
+    const last = result[result.length - 1];
+    
+    // Merge if both are code blocks and no separator flag
+    if (last?.type === 'code_block' && para.type === 'code_block' && !(para as any)._hasPrecedingSeparator) {
+      last.spans.push({ text: '\n' }, ...para.spans);
+      debug('docs-to-ir', 'merged-code-block', para.spans[0]?.text?.substring(0, 20));
+    } else {
+      result.push(para);
+    }
+  }
+  
+  return result;
+}
+
 /**
  * Extract language labels from paragraphs and associate with preceding code blocks.
- * Language labels are removed from the output and their content is set as the
- * `language` property of the preceding code block.
- * 
- * @param paragraphs - The IR paragraphs (after merging code blocks)
- * @param rawBody - The raw Google Docs body.content array for style detection
  */
 function extractLanguageLabels(paragraphs: Paragraph[], rawBody: any[]): Paragraph[] {
   if (paragraphs.length === 0) return [];
   
-  // Build a map of paragraph text to raw element for style checking
-  // This is needed because IR paragraphs don't preserve the raw styling info
+  // Build map of paragraph text to raw element for style checking
   const rawElementMap = new Map<string, any>();
   for (const element of rawBody) {
     if (element?.paragraph?.elements) {
@@ -593,23 +510,19 @@ function extractLanguageLabels(paragraphs: Paragraph[], rawBody: any[]): Paragra
   while (i < paragraphs.length) {
     const para = paragraphs[i];
     
-    // If this is a code block, check if the next paragraph is a language label
+    // Check if next paragraph is a language label for this code block
     if (para.type === 'code_block' && i + 1 < paragraphs.length) {
       const nextPara = paragraphs[i + 1];
-      
-      // Get the text content of the next paragraph
       const nextContent = nextPara.spans.map(s => s.text).join('').trim();
-      
-      // Look up the raw element to check if it's a language label
       const rawElement = rawElementMap.get(nextContent);
+      
       if (rawElement) {
         const { isLabel, language } = isLanguageLabelElement(rawElement);
         if (isLabel && language) {
-          // Set language on the code block and skip the label paragraph
           para.language = language;
           debug('docs-to-ir', 'extracted-lang-from-label', { language, codePreview: para.spans[0]?.text?.substring(0, 30) });
           result.push(para);
-          i += 2; // Skip both the code block (added) and the label (discarded)
+          i += 2; // Skip both code block and label
           continue;
         }
       }
@@ -624,7 +537,6 @@ function extractLanguageLabels(paragraphs: Paragraph[], rawBody: any[]): Paragra
 
 /**
  * Merge adjacent spans with identical styles.
- * Call this after docsToIR for cleaner output.
  */
 export function mergeAdjacentSpans(doc: IRDocument): IRDocument {
   return doc.map(para => ({
@@ -633,9 +545,6 @@ export function mergeAdjacentSpans(doc: IRDocument): IRDocument {
   }));
 }
 
-/**
- * Merge adjacent spans with same styles.
- */
 function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
   if (spans.length === 0) return [];
   
@@ -645,14 +554,12 @@ function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
     const current = spans[i];
     const last = merged[merged.length - 1];
     
-    // Check if styles match
     if (
       last.bold === current.bold &&
       last.italic === current.italic &&
       last.code === current.code &&
       last.link === current.link
     ) {
-      // Merge text
       last.text += current.text;
     } else {
       merged.push({ ...current });
@@ -662,3 +569,51 @@ function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
   return merged;
 }
 
+// =============================================================================
+// MAIN ENTRY POINT
+// =============================================================================
+
+/**
+ * Convert a Google Docs document to IR.
+ * 
+ * @param doc - The document object from documents.get API
+ * @param config - Optional converter configuration
+ * @returns The IR document
+ */
+export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
+  const cfg = config || loadConfig();
+  const body = doc?.body?.content || [];
+  const inlineObjects: InlineObjectsDict = doc?.inlineObjects || {};
+  const lists: ListsDict = doc?.lists || {};
+  
+  debug('docs-to-ir', 'input', body);
+  debug('docs-to-ir', 'inlineObjects-count', Object.keys(inlineObjects).length);
+  debug('docs-to-ir', 'lists-count', Object.keys(lists).length);
+  
+  const paragraphs: Paragraph[] = [];
+  let lastWasEmpty = false;
+  
+  for (const element of body) {
+    const result = elementToParagraph(element, cfg, inlineObjects, lists);
+    
+    if (result === null) {
+      lastWasEmpty = true;
+      continue;
+    }
+    
+    // Flag paragraphs that had an empty paragraph before them
+    if (lastWasEmpty) {
+      (result as any)._hasPrecedingSeparator = true;
+      lastWasEmpty = false;
+    }
+    
+    paragraphs.push(result);
+  }
+  
+  // Post-processing pipeline
+  const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs);
+  const finalParagraphs = extractLanguageLabels(mergedParagraphs, body);
+  
+  debug('docs-to-ir', 'result', finalParagraphs);
+  return finalParagraphs;
+}
