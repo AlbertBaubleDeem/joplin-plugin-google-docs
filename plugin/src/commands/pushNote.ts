@@ -4,7 +4,7 @@ import {
   saveMapping,
   getBinding,
 } from '../mapping';
-import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests } from '../converters';
+import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests, buildListBulletRequests } from '../converters';
 import { createSyncContext, SyncContext } from '../services/SyncContext';
 import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
 import { getGCSBucketNameAsync } from '../services/settings';
@@ -99,13 +99,13 @@ async function executePush(
   const mdRaw: string = String(note.body ?? '');
   debugLog(`Note body length: ${mdRaw.length}`);
   
-  // Convert Markdown to plain text, style ranges, and image positions
-  // The converter now also extracts images from markdown
-  const { plain, paraRanges, textRanges, imageRanges } = convertMarkdownToPlainAndStyles(mdRaw, { installDir });
+  // Convert Markdown to plain text, style ranges, image positions, and list ranges
+  // The converter now also extracts images from markdown and tracks list ranges
+  const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { installDir });
 
-  debugLog(`Converted: ${mdRaw.length} chars -> ${plain.length} plain, ${imageRanges.length} images`);
+  debugLog(`Converted: ${mdRaw.length} chars -> ${plain.length} plain, ${imageRanges.length} images, ${listRanges.length} list ranges`);
   console.log(`[pushNote] Converted markdown: ${mdRaw.length} chars -> ${plain.length} plain chars`);
-  console.log(`[pushNote] Found ${imageRanges.length} images in note`);
+  console.log(`[pushNote] Found ${imageRanges.length} images and ${listRanges.length} list ranges in note`);
   if (imageRanges.length > 0) {
     debugLog( `Image resources: ${JSON.stringify(imageRanges.map(r => r.resourceId))}`);
     console.log(`[pushNote] Image resources:`, imageRanges.map(r => r.resourceId));
@@ -169,15 +169,47 @@ async function executePush(
     },
   });
 
-  // Read new revisionId after text insertion
+  // Read new revisionId and document state after text insertion
   let afterRes = await docs.documents.get({ documentId: fileId });
   let newRevisionId: string = String((afterRes.data as any).revisionId || '');
+  const bodyAfterInsert = (afterRes.data as any).body || {};
+  const contentAfterInsert = Array.isArray(bodyAfterInsert.content) ? bodyAfterInsert.content : [];
+  const endIndexAfterInsert = contentAfterInsert.length ? Number(contentAfterInsert[contentAfterInsert.length - 1].endIndex || 1) : 1;
 
-  // Apply paragraph and inline styles
+  // Clear all existing bullet formatting before applying new styles
+  // This prevents list formatting from persisting across pushes
+  if (endIndexAfterInsert > 2) {
+    debugLog(`Clearing bullet formatting from 1 to ${endIndexAfterInsert}`);
+    await docs.documents.batchUpdate({
+      documentId: fileId,
+      requestBody: {
+        requests: [{
+          deleteParagraphBullets: {
+            range: {
+              startIndex: 1,
+              endIndex: endIndexAfterInsert,
+            },
+          },
+        }],
+      },
+    });
+  }
+
+  // Apply paragraph and inline styles (WITHOUT list bullets)
   // buildDocsStyleUpdateRequests handles monoFont internally via config
   const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
   if (styleReqs.length) {
     await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: styleReqs } });
+  }
+
+  // Apply list bullets in a SEPARATE batchUpdate call
+  // This avoids potential interactions between paragraph styles and bullet formatting
+  if (listRanges.length > 0) {
+    const bulletReqs = buildListBulletRequests(listRanges);
+    if (bulletReqs.length) {
+      debugLog(`Applying ${bulletReqs.length} list bullet requests separately`);
+      await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: bulletReqs } });
+    }
   }
 
   // Insert images if we have any uploaded

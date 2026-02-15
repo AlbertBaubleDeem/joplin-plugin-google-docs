@@ -6,7 +6,7 @@
  * 2. Style ranges for batchUpdate requests
  */
 
-import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange } from './types';
+import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange, ListRange } from './types';
 import { getMonoFont, getElementSpacing } from './config';
 import { debug } from './debug';
 import { getCalloutDefinition, CALLOUT_BY_TYPE } from './callout-config';
@@ -25,13 +25,45 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   const paraRanges: ParaRange[] = [];
   const textRanges: TextRange[] = [];
   const calloutRanges: CalloutRange[] = [];
+  const listRanges: ListRange[] = [];
   let plain = '';
   let cursor = 0;
   let prevWasCodeBlock = false;
   
-  for (const para of doc) {
+  // List tracking state
+  let currentListType: 'ordered' | 'unordered' | null = null;
+  let currentListStart = 0;
+  let currentListEnd = 0;
+  let maxNestingInCurrentList = 0;
+  
+  for (let i = 0; i < doc.length; i++) {
+    const para = doc[i];
     const isCodeBlock = para.type === 'code_block';
     const isCallout = para.type === 'callout';
+    const isListItem = para.type === 'list_item';
+    
+    // Check if we need to close the current list range
+    if (currentListType !== null && (!isListItem || para.listType !== currentListType)) {
+      // Close the current list range
+      // Subtract maxNestingInCurrentList to prevent deeply nested lists from
+      // causing Google Docs to include following paragraphs as list items
+      const adjustedEndIndex = currentListEnd - maxNestingInCurrentList;
+      if (adjustedEndIndex > currentListStart) {
+        listRanges.push({
+          startIndex: currentListStart,
+          endIndex: adjustedEndIndex,
+          listType: currentListType,
+        });
+        debug('ir-to-docs', 'closed-list-range', { 
+          startIndex: currentListStart, 
+          endIndex: adjustedEndIndex, 
+          listType: currentListType,
+          maxNesting: maxNestingInCurrentList
+        });
+      }
+      currentListType = null;
+      maxNestingInCurrentList = 0;
+    }
     
     // Handle callout boxes - render as styled paragraph with symbol prefix
     if (isCallout && para.calloutType) {
@@ -79,7 +111,28 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
       }
     }
     
-    const { text, ranges } = paragraphToTextAndRanges(para, cursor);
+    // Handle list items - prepend tabs for nesting
+    let text: string;
+    let ranges: TextRange[];
+    
+    if (isListItem) {
+      // Prepend \t characters for nesting level
+      const tabPrefix = '\t'.repeat(para.nestingLevel || 0);
+      const result = paragraphToTextAndRanges(para, cursor + tabPrefix.length);
+      text = tabPrefix + result.text;
+      ranges = result.ranges;
+      
+      // Start a new list range if needed
+      if (currentListType === null) {
+        currentListType = para.listType || 'unordered';
+        currentListStart = cursor;
+        maxNestingInCurrentList = 0;
+      }
+    } else {
+      const result = paragraphToTextAndRanges(para, cursor);
+      text = result.text;
+      ranges = result.ranges;
+    }
     
     if (text.length === 0) {
       prevWasCodeBlock = isCodeBlock;
@@ -96,6 +149,16 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
     
     // Add text ranges with offset
     textRanges.push(...ranges);
+    
+    // Update list end position to include full text (newline added separately)
+    if (isListItem) {
+      currentListEnd = paraEnd;
+      // Track max nesting level for later adjustment
+      const nestingLevel = para.nestingLevel || 0;
+      if (nestingLevel > maxNestingInCurrentList) {
+        maxNestingInCurrentList = nestingLevel;
+      }
+    }
     
     // Append to plain text with newline
     plain += text + '\n';
@@ -129,7 +192,38 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
     prevWasCodeBlock = isCodeBlock;
   }
   
-  const result = { plain, paraRanges, textRanges, calloutRanges };
+  // Close any remaining list range
+  // Apply same nesting adjustment as mid-document closures
+  const finalAdjustedEndIndex = currentListEnd - maxNestingInCurrentList;
+  if (currentListType !== null && finalAdjustedEndIndex > currentListStart) {
+    listRanges.push({
+      startIndex: currentListStart,
+      endIndex: finalAdjustedEndIndex,
+      listType: currentListType,
+    });
+    debug('ir-to-docs', 'closed-final-list-range', { 
+      startIndex: currentListStart, 
+      endIndex: finalAdjustedEndIndex, 
+      listType: currentListType,
+      maxNesting: maxNestingInCurrentList
+    });
+  }
+  
+  // Safety clamp: ensure no list range endIndex exceeds plain.length - 1
+  // This prevents "endIndex must be less than segment end" API errors
+  // when the list extends to the end of the document
+  const maxEndIndex = plain.length > 0 ? plain.length - 1 : 0;
+  for (const range of listRanges) {
+    if (range.endIndex > maxEndIndex) {
+      debug('ir-to-docs', 'clamping-list-endIndex', { 
+        from: range.endIndex, 
+        to: maxEndIndex 
+      });
+      range.endIndex = maxEndIndex;
+    }
+  }
+  
+  const result = { plain, paraRanges, textRanges, calloutRanges, listRanges };
   debug('ir-to-docs', 'result', result);
   return result;
 }
@@ -191,6 +285,8 @@ function getParagraphStyle(para: Paragraph): string {
       return `HEADING_${para.level || 1}`;
     case 'code_block':
       return 'CODEBLOCK'; // Custom style, handled specially
+    case 'list_item':
+      return 'NORMAL_TEXT'; // Lists are styled via createParagraphBullets
     case 'paragraph':
     default:
       return 'NORMAL_TEXT';
@@ -208,10 +304,10 @@ export function buildDocsRequests(
   plainWithRanges: PlainTextWithRanges,
   installDir?: string
 ): any[] {
-  const { paraRanges, textRanges } = plainWithRanges;
+  const { paraRanges, textRanges, listRanges } = plainWithRanges;
   const monoFont = getMonoFont(installDir);
   
-  debug('ir-to-docs', 'buildDocsRequests', { paraRanges, textRanges, monoFont });
+  debug('ir-to-docs', 'buildDocsRequests', { paraRanges, textRanges, listRanges, monoFont });
   
   // Build paragraph style requests
   const paraReqs = paraRanges
@@ -223,7 +319,35 @@ export function buildDocsRequests(
     .filter(r => r.end > r.start)
     .flatMap(r => buildTextStyleRequests(r, monoFont));
   
-  return [...paraReqs, ...textReqs];
+  // Build list bullet requests
+  const listReqs = buildListBulletRequests(listRanges || []);
+  
+  return [...paraReqs, ...textReqs, ...listReqs];
+}
+
+/**
+ * Build createParagraphBullets requests for list ranges.
+ * 
+ * @param listRanges - Array of list ranges
+ * @returns Array of Docs API request objects for bullet formatting
+ */
+export function buildListBulletRequests(listRanges: ListRange[]): any[] {
+  return listRanges
+    .filter(r => r.endIndex > r.startIndex)
+    .map(range => ({
+      createParagraphBullets: {
+        range: {
+          // Docs API uses 1-based indices
+          // Use endIndex without +1 to be more conservative and avoid
+          // including trailing content in the list
+          startIndex: range.startIndex + 1,
+          endIndex: range.endIndex,
+        },
+        bulletPreset: range.listType === 'ordered' 
+          ? 'NUMBERED_DECIMAL_NESTED' 
+          : 'BULLET_DISC_CIRCLE_SQUARE',
+      },
+    }));
 }
 
 /**

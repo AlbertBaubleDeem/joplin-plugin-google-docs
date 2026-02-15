@@ -169,7 +169,7 @@ function tokenToParagraphs(
       }];
     
     case 'space':
-      // Skip empty space tokens
+      // Skip empty space tokens - blank lines are paragraph separators, not content
       return [];
     
     case 'hr':
@@ -205,19 +205,26 @@ function tokenToParagraphs(
 }
 
 /**
- * Process a list token into multiple paragraphs.
- * Handles ordered/unordered lists and nested content within list items.
+ * Process a list token into multiple list_item paragraphs.
+ * Preserves list structure with type and nesting level metadata.
+ * 
+ * @param listToken - The list token from marked
+ * @param config - Converter configuration
+ * @param nestingLevel - Current nesting depth (0 = top level)
  */
-function processListToken(listToken: Tokens.List, config: ConverterConfig): Paragraph[] {
+function processListToken(
+  listToken: Tokens.List, 
+  config: ConverterConfig,
+  nestingLevel: number = 0
+): Paragraph[] {
   const listParagraphs: Paragraph[] = [];
+  const listType: 'ordered' | 'unordered' = listToken.ordered ? 'ordered' : 'unordered';
   
   for (let i = 0; i < listToken.items.length; i++) {
     const item = listToken.items[i];
-    const startNum = typeof listToken.start === 'number' ? listToken.start : 1;
-    const prefix = listToken.ordered ? `${startNum + i}. ` : '- ';
     
-    // First, collect the main text of the list item
-    const itemSpans: StyledSpan[] = [{ text: prefix }];
+    // Collect the main text of the list item (without prefix)
+    const itemSpans: StyledSpan[] = [];
     let hasMainContent = false;
     
     for (const t of item.tokens || []) {
@@ -235,24 +242,26 @@ function processListToken(listToken: Tokens.List, config: ConverterConfig): Para
           itemSpans.push(...inlineTokensToSpans((t as Tokens.Paragraph).tokens || []));
           hasMainContent = true;
         } else {
-          // Additional paragraphs - add as indented paragraphs
+          // Additional paragraphs within a list item - add as regular paragraphs
+          // These are not list items themselves
           const paraSpans = inlineTokensToSpans((t as Tokens.Paragraph).tokens || []);
-          listParagraphs.push({ type: 'paragraph', spans: [{ text: '    ' }, ...paraSpans] });
+          listParagraphs.push({ type: 'paragraph', spans: paraSpans });
         }
       } else if (t.type === 'list') {
         // Nested list - first add the current item if we have content
-        if (hasMainContent || itemSpans.length > 1) {
-          listParagraphs.push({ type: 'paragraph', spans: itemSpans.slice() });
-          itemSpans.length = 1; // Reset to just prefix for next iteration
+        if (hasMainContent || itemSpans.length > 0) {
+          listParagraphs.push({
+            type: 'list_item',
+            listType,
+            nestingLevel,
+            spans: mergeSpans(itemSpans.slice()),
+          });
+          itemSpans.length = 0;
           hasMainContent = false;
         }
-        // Process nested list with indentation
-        const nestedParagraphs = processListToken(t as Tokens.List, config);
-        for (const nested of nestedParagraphs) {
-          // Add indentation to nested items
-          nested.spans.unshift({ text: '    ' });
-          listParagraphs.push(nested);
-        }
+        // Process nested list with incremented nesting level
+        const nestedParagraphs = processListToken(t as Tokens.List, config, nestingLevel + 1);
+        listParagraphs.push(...nestedParagraphs);
       } else if (t.type === 'space') {
         // Skip space tokens
       } else {
@@ -265,8 +274,13 @@ function processListToken(listToken: Tokens.List, config: ConverterConfig): Para
     }
     
     // Add the main list item if it has content
-    if (itemSpans.length > 1 || hasMainContent) {
-      listParagraphs.push({ type: 'paragraph', spans: itemSpans });
+    if (itemSpans.length > 0 || hasMainContent) {
+      listParagraphs.push({
+        type: 'list_item',
+        listType,
+        nestingLevel,
+        spans: mergeSpans(itemSpans),
+      });
     }
   }
   

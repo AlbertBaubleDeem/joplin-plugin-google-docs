@@ -56,7 +56,7 @@ export { setDebugMode, isDebugEnabled, getDebugLog, clearDebugLog, formatIRDocum
 export { markdownToIR } from './md-to-ir';
 export { docsToIR, mergeAdjacentSpans } from './docs-to-ir';
 export { irToMarkdown, normalizeMarkdown } from './ir-to-md';
-export { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests } from './ir-to-docs';
+export { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests, buildListBulletRequests } from './ir-to-docs';
 export { extractImages, calculateImagePositions, hasJoplinImages } from './image-extractor';
 
 // Import for backward-compatible wrappers
@@ -66,7 +66,7 @@ import { irToMarkdown } from './ir-to-md';
 import { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests } from './ir-to-docs';
 import { extractImages, calculateImagePositions, hasJoplinImages } from './image-extractor';
 import { loadConfig, setInstallDir, setDataDir } from './config';
-import type { ParaRange, TextRange, ImageRange, ConverterConfig } from './types';
+import type { ParaRange, TextRange, ImageRange, ListRange, ConverterConfig } from './types';
 
 /**
  * Convert Markdown to plain text and style ranges.
@@ -74,16 +74,17 @@ import type { ParaRange, TextRange, ImageRange, ConverterConfig } from './types'
  * This is a backward-compatible wrapper that matches the old converter API.
  * Internally, it uses: markdown → IR → plainTextWithRanges
  * 
- * Now also extracts images and returns their positions for later insertion.
+ * Now also extracts images and returns their positions for later insertion,
+ * and list ranges for bullet formatting.
  * 
  * @param mdRaw - The Markdown source
  * @param opts - Options including installDir for config
- * @returns Plain text, style ranges, and image ranges
+ * @returns Plain text, style ranges, image ranges, and list ranges
  */
 export function convertMarkdownToPlainAndStyles(
   mdRaw: string,
   opts?: { installDir?: string }
-): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[]; imageRanges: ImageRange[] } {
+): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[]; imageRanges: ImageRange[]; listRanges: ListRange[] } {
   if (opts?.installDir) {
     setInstallDir(opts.installDir);
   }
@@ -97,7 +98,7 @@ export function convertMarkdownToPlainAndStyles(
   const ir = markdownToIR(markdownWithPlaceholders, config);
   
   // Step 3: Convert IR to plain text with style ranges
-  const { plain: plainWithPlaceholders, paraRanges: rawParaRanges, textRanges: rawTextRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
+  const { plain: plainWithPlaceholders, paraRanges: rawParaRanges, textRanges: rawTextRanges, listRanges: rawListRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
   
   // Step 4: Calculate image positions, remove placeholders, and adjust ranges
   const { cleanPlainText, imageRanges, adjustedParaRanges, adjustedTextRanges } = calculateImagePositions(
@@ -107,7 +108,69 @@ export function convertMarkdownToPlainAndStyles(
     rawTextRanges
   );
   
-  return { plain: cleanPlainText, paraRanges: adjustedParaRanges, textRanges: adjustedTextRanges, imageRanges };
+  // Step 5: Adjust list ranges for image placeholder removal
+  const adjustedListRanges = adjustListRangesForImages(rawListRanges || [], plainWithPlaceholders, images);
+  
+  // Step 6: Safety clamp list ranges to prevent "endIndex must be less than segment end" errors
+  // After inserting at index 1, document body end = 1 + cleanPlainText.length + 1 (trailing newline)
+  // Our 1-based endIndex (0-based + 1) must be strictly less than body end
+  // Use aggressive clamping (-2) to account for any edge cases with trailing newlines
+  const maxListEndIndex = cleanPlainText.length > 1 ? cleanPlainText.length - 2 : 0;
+  for (const range of adjustedListRanges) {
+    if (range.endIndex > maxListEndIndex) {
+      range.endIndex = maxListEndIndex;
+    }
+  }
+  
+  return { plain: cleanPlainText, paraRanges: adjustedParaRanges, textRanges: adjustedTextRanges, imageRanges, listRanges: adjustedListRanges };
+}
+
+// Image placeholder constant - must match image-extractor.ts
+const IMAGE_PLACEHOLDER = '\u200B\u2063IMG\u2063\u200B';
+
+/**
+ * Adjust list ranges after image placeholder removal.
+ * Similar logic to calculateImagePositions but for list ranges.
+ */
+function adjustListRangesForImages(
+  listRanges: ListRange[],
+  plainWithPlaceholders: string,
+  images: { placeholderIndex: number }[]
+): ListRange[] {
+  if (listRanges.length === 0 || images.length === 0) {
+    return listRanges;
+  }
+  
+  // Calculate total placeholder lengths removed before each position
+  const placeholderPositions: { position: number; length: number }[] = [];
+  for (const img of images) {
+    const placeholder = `${IMAGE_PLACEHOLDER}${img.placeholderIndex}${IMAGE_PLACEHOLDER}`;
+    const pos = plainWithPlaceholders.indexOf(placeholder);
+    if (pos !== -1) {
+      placeholderPositions.push({ position: pos, length: placeholder.length });
+    }
+  }
+  placeholderPositions.sort((a, b) => a.position - b.position);
+  
+  return listRanges.map(range => {
+    let startAdjustment = 0;
+    let endAdjustment = 0;
+    
+    for (const pp of placeholderPositions) {
+      if (pp.position < range.startIndex) {
+        startAdjustment += pp.length;
+      }
+      if (pp.position < range.endIndex) {
+        endAdjustment += pp.length;
+      }
+    }
+    
+    return {
+      startIndex: range.startIndex - startAdjustment,
+      endIndex: range.endIndex - endAdjustment,
+      listType: range.listType,
+    };
+  });
 }
 
 /**
@@ -117,16 +180,16 @@ export function convertMarkdownToPlainAndStyles(
  * 
  * @param paraRanges - Paragraph ranges from convertMarkdownToPlainAndStyles
  * @param textRanges - Text ranges from convertMarkdownToPlainAndStyles
- * @param opts - Options including installDir for config
+ * @param opts - Options including installDir for config and listRanges for bullet formatting
  * @returns Array of Docs API request objects
  */
 export function buildDocsStyleUpdateRequests(
   paraRanges: ParaRange[],
   textRanges: TextRange[],
-  opts?: { installDir?: string }
+  opts?: { installDir?: string; listRanges?: ListRange[] }
 ): any[] {
-  // Build requests from ranges
-  const plainWithRanges = { plain: '', paraRanges, textRanges };
+  // Build requests from ranges (including list ranges)
+  const plainWithRanges = { plain: '', paraRanges, textRanges, listRanges: opts?.listRanges };
   const requests = buildDocsRequests(plainWithRanges, opts?.installDir);
   
   // Add code block font requests

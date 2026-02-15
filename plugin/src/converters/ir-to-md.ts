@@ -21,15 +21,13 @@ function isImageOnlyParagraph(para: Paragraph): boolean {
 
 /**
  * Check if a paragraph is a list item.
- * List items start with:
- * - "- " (markdown unordered)
- * - "* " (markdown unordered)
- * - "• " (bullet character U+2022)
- * - "◦" (hollow bullet U+25E6)
- * - "▪" (small black square U+25AA)
- * - "N. " (ordered)
+ * Checks both the type property and legacy text-based detection.
  */
 function isListItemParagraph(para: Paragraph): boolean {
+  // Check type first (new list_item type)
+  if (para.type === 'list_item') return true;
+  
+  // Legacy detection: list items start with markers
   if (para.spans.length === 0) return false;
   const firstSpan = para.spans[0].text;
   // Match various list markers
@@ -83,6 +81,18 @@ function getDelimiter(prev: Paragraph, current: Paragraph): string {
 }
 
 /**
+ * State for tracking ordered list numbering across nesting levels.
+ */
+type ListNumberingState = {
+  /** Counter for each nesting level */
+  counters: number[];
+  /** Last nesting level processed */
+  lastLevel: number;
+  /** Last list type processed */
+  lastListType: 'ordered' | 'unordered' | null;
+};
+
+/**
  * Convert IR document to Markdown string.
  * 
  * @param doc - The IR document
@@ -94,11 +104,18 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
   
   debug('ir-to-md', 'input', doc);
   
+  // State for ordered list numbering
+  const listState: ListNumberingState = {
+    counters: [],
+    lastLevel: -1,
+    lastListType: null,
+  };
+  
   // Convert paragraphs and keep reference to original for delimiter logic
   const converted: { text: string; para: Paragraph }[] = [];
   
   for (const para of doc) {
-    const line = paragraphToMarkdown(para, cfg);
+    const line = paragraphToMarkdown(para, cfg, listState);
     if (line !== null) {
       converted.push({ text: line, para });
     }
@@ -126,19 +143,94 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
 /**
  * Convert a paragraph to a Markdown line.
  */
-function paragraphToMarkdown(para: Paragraph, config: ConverterConfig): string | null {
+function paragraphToMarkdown(
+  para: Paragraph, 
+  config: ConverterConfig,
+  listState?: ListNumberingState
+): string | null {
   // Handle code blocks specially
   if (para.type === 'code_block') {
     const codeText = para.spans.map(s => s.text).join('');
     const lang = para.language || '';
     const fence = config.code?.block?.marker || '```';
+    // Reset list state when we exit a list
+    if (listState) {
+      listState.lastListType = null;
+      listState.lastLevel = -1;
+    }
     return fence + lang + '\n' + codeText + '\n' + fence;
   }
   
   // Handle callout boxes
   if (para.type === 'callout' && para.calloutType) {
     const content = spansToMarkdown(para.spans, config);
+    // Reset list state when we exit a list
+    if (listState) {
+      listState.lastListType = null;
+      listState.lastLevel = -1;
+    }
     return `<${para.calloutType}>${content}</${para.calloutType}>`;
+  }
+  
+  // Handle list items
+  if (para.type === 'list_item') {
+    const nestingLevel = para.nestingLevel || 0;
+    const listType = para.listType || 'unordered';
+    const indent = '    '.repeat(nestingLevel);
+    
+    let marker: string;
+    if (listType === 'ordered') {
+      // Track ordered list numbering
+      if (listState) {
+        // Reset counters if list type changed or we're at a different level
+        if (listState.lastListType !== 'ordered') {
+          listState.counters = [];
+          listState.lastListType = 'ordered';
+        }
+        
+        // Ensure counters array is long enough
+        while (listState.counters.length <= nestingLevel) {
+          listState.counters.push(0);
+        }
+        
+        // Reset deeper levels when going to a shallower level
+        if (nestingLevel < listState.lastLevel) {
+          for (let i = nestingLevel + 1; i < listState.counters.length; i++) {
+            listState.counters[i] = 0;
+          }
+        }
+        
+        // Increment counter for current level
+        listState.counters[nestingLevel]++;
+        listState.lastLevel = nestingLevel;
+        
+        marker = `${listState.counters[nestingLevel]}. `;
+      } else {
+        marker = '1. ';
+      }
+    } else {
+      // Unordered list - use configured marker
+      const unorderedMarker = config.list?.unorderedMarker || '-';
+      marker = `${unorderedMarker} `;
+      
+      // Update list state
+      if (listState) {
+        if (listState.lastListType !== 'unordered') {
+          listState.counters = [];
+        }
+        listState.lastListType = 'unordered';
+        listState.lastLevel = nestingLevel;
+      }
+    }
+    
+    const content = spansToMarkdown(para.spans, config);
+    return indent + marker + content;
+  }
+  
+  // Reset list state for non-list paragraphs
+  if (listState) {
+    listState.lastListType = null;
+    listState.lastLevel = -1;
   }
   
   // Get prefix for paragraph type

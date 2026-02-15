@@ -28,5 +28,8 @@
     "code_block": { "spaceBelow": 12, "insertSeparatorBetweenConsecutive": true },
     "code_lang_label": { "spaceAbove": 0, "spaceBelow": 6 },
     "callout": { "spaceAbove": 8, "spaceBelow": 8 }
+  },
+  "list": {
+    "unorderedMarker": "-"
   }
 }

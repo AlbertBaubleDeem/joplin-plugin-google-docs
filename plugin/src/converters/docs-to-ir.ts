@@ -71,6 +71,19 @@ function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
 }
 
 /**
+ * Google Docs lists dictionary structure.
+ * Maps listId -> list properties with nesting levels.
+ */
+type ListsDict = Record<string, {
+  listProperties?: {
+    nestingLevels?: Array<{
+      glyphType?: string;
+      glyphSymbol?: string;
+    }>;
+  };
+}>;
+
+/**
  * Convert a Google Docs document to IR.
  * 
  * @param doc - The document object from documents.get API (should include inlineObjects for image support)
@@ -81,15 +94,17 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   const cfg = config || loadConfig();
   const body = doc?.body?.content || [];
   const inlineObjects: InlineObjectsDict = doc?.inlineObjects || {};
+  const lists: ListsDict = doc?.lists || {};
   
   debug('docs-to-ir', 'input', body);
   debug('docs-to-ir', 'inlineObjects-count', Object.keys(inlineObjects).length);
+  debug('docs-to-ir', 'lists-count', Object.keys(lists).length);
   
   const paragraphs: Paragraph[] = [];
   let lastWasEmpty = false;
   
   for (const element of body) {
-    const result = elementToParagraph(element, cfg, inlineObjects);
+    const result = elementToParagraph(element, cfg, inlineObjects, lists);
     
     if (result === null) {
       // Empty paragraph - mark that the next paragraph has a separator before it
@@ -172,12 +187,25 @@ function isAllMonospaceParagraph(elements: any[]): boolean {
 }
 
 /**
+ * Ordered list glyph types in Google Docs.
+ */
+const ORDERED_GLYPH_TYPES = [
+  'DECIMAL',
+  'ALPHA',
+  'ROMAN',
+  'UPPER_ALPHA',
+  'UPPER_ROMAN',
+  'ZERO_DECIMAL',
+];
+
+/**
  * Convert a document element to a Paragraph.
  */
 function elementToParagraph(
   element: any,
   config: ConverterConfig,
-  inlineObjects: InlineObjectsDict
+  inlineObjects: InlineObjectsDict,
+  lists: ListsDict
 ): Paragraph | null {
   const p = element?.paragraph;
   if (!p?.elements?.length) return null;
@@ -226,13 +254,34 @@ function elementToParagraph(
   }
   
   // Detect native Google Docs bullet lists
-  // Prepend bullet character to first span
   const bullet = p.bullet;
   if (bullet && spans.length > 0) {
-    // Use bullet character (•) for unordered lists - appears naturally in Joplin
-    // TODO: Could detect ordered lists by checking list properties
-    spans[0].text = '• ' + spans[0].text;
-    debug('docs-to-ir', 'detected-bullet-list', { listId: bullet.listId, text: spans[0].text.substring(0, 30) });
+    const listId = bullet.listId;
+    const nestingLevel = bullet.nestingLevel || 0;
+    
+    // Get list definition to determine if ordered or unordered
+    const listDef = lists[listId];
+    const nestingLevelDef = listDef?.listProperties?.nestingLevels?.[nestingLevel];
+    const glyphType = nestingLevelDef?.glyphType;
+    
+    // Determine list type from glyphType
+    const isOrdered = glyphType ? ORDERED_GLYPH_TYPES.includes(glyphType) : false;
+    const listType: 'ordered' | 'unordered' = isOrdered ? 'ordered' : 'unordered';
+    
+    debug('docs-to-ir', 'detected-list-item', { 
+      listId, 
+      nestingLevel, 
+      glyphType, 
+      listType,
+      text: spans[0].text.substring(0, 30) 
+    });
+    
+    return { 
+      type: 'list_item', 
+      listType,
+      nestingLevel,
+      spans 
+    };
   }
   
   return { type, level, spans };

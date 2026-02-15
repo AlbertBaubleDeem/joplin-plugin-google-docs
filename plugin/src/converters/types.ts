@@ -35,7 +35,8 @@ export type ParagraphType =
   | 'code_block'   // fenced code block
   | 'title'        // document title (special heading)
   | 'subtitle'     // document subtitle
-  | 'callout';     // callout box (note, info, question, warning, jarvis)
+  | 'callout'      // callout box (note, info, question, warning, jarvis)
+  | 'list_item';   // list item (ordered or unordered)
 
 /**
  * Callout box types supported by the converter.
@@ -73,6 +74,10 @@ export type Paragraph = {
   language?: string;
   /** Callout type, only used when type === 'callout' */
   calloutType?: CalloutType;
+  /** List type, only used when type === 'list_item' */
+  listType?: 'ordered' | 'unordered';
+  /** Nesting level for lists (0 = top level, 1 = first indent, etc.) */
+  nestingLevel?: number;
 };
 
 /**
@@ -124,6 +129,24 @@ export type ConverterConfig = {
   >>;
   /** Element spacing configuration (overrides defaults) */
   elementSpacing?: Record<string, ElementSpacing>;
+  /** List formatting configuration */
+  list?: {
+    /** Unordered list marker: '-', '*', or '+' (default: '-') */
+    unorderedMarker?: '-' | '*' | '+';
+  };
+};
+
+/**
+ * A list range for applying bullet formatting.
+ * Tracks consecutive list items of the same type.
+ */
+export type ListRange = {
+  /** Start index (inclusive) */
+  startIndex: number;
+  /** End index (exclusive, before trailing newline) */
+  endIndex: number;
+  /** List type for bullet preset selection */
+  listType: 'ordered' | 'unordered';
 };
 
 /**
@@ -139,6 +162,8 @@ export type PlainTextWithRanges = {
   textRanges: TextRange[];
   /** Callout boxes to be rendered as tables */
   calloutRanges?: CalloutRange[];
+  /** List ranges for bullet formatting */
+  listRanges?: ListRange[];
 };
 
 /**

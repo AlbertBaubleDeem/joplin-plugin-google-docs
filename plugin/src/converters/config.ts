@@ -29,6 +29,9 @@ const DEFAULT_CONFIG: ConverterConfig = {
     HEADING_5: '##### ',
     HEADING_6: '###### ',
   },
+  list: {
+    unorderedMarker: '-',
+  },
 };
 
 /**
@@ -189,6 +192,7 @@ export function loadConfig(installDir?: string): ConverterConfig {
     code: { ...DEFAULT_CONFIG.code, ...fileConfig.code },
     mdPrefixes: { ...DEFAULT_CONFIG.mdPrefixes, ...fileConfig.mdPrefixes },
     elementSpacing: mergedElementSpacing,
+    list: { ...DEFAULT_CONFIG.list, ...fileConfig.list },
   };
   
   // Cache and return
