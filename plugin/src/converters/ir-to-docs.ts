@@ -83,9 +83,10 @@ class ListRangeBuilder {
     // Accumulate tabs for final clamping calculation
     this.cumulativeTabs += this.totalTabs;
     
-    // Subtract maxNesting to prevent deeply nested lists from
-    // causing Google Docs to include following paragraphs as list items
-    const adjustedEnd = this.currentEnd - this.maxNesting;
+    // Always subtract 1 to end BEFORE the newline character (not at it)
+    // Additionally subtract maxNesting for deeply nested lists to prevent
+    // Google Docs from including following paragraphs as list items
+    const adjustedEnd = this.currentEnd - 1 - this.maxNesting;
     
     if (adjustedEnd > this.currentStart) {
       this.ranges.push({
@@ -317,8 +318,9 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
 /**
  * Convert a paragraph to text and inline style ranges.
  * 
- * For code blocks, newlines are converted to vertical tabs (\u000B)
+ * For code blocks and list items, newlines are converted to vertical tabs (\u000B)
  * which creates soft line breaks within the same paragraph in Google Docs.
+ * This allows multi-line content (like images) to stay within a single list item.
  */
 function paragraphToTextAndRanges(
   para: Paragraph,
@@ -327,14 +329,15 @@ function paragraphToTextAndRanges(
   let text = '';
   const ranges: TextRange[] = [];
   const isCodeBlock = para.type === 'code_block';
+  const isListItem = para.type === 'list_item';
   
   for (const span of para.spans) {
     const spanStart = startOffset + text.length;
     
-    // For code blocks, replace newlines with vertical tabs (soft line breaks)
-    // This keeps all code lines in a single Google Docs paragraph
+    // For code blocks and list items, replace newlines with vertical tabs (soft line breaks)
+    // This keeps all content in a single Google Docs paragraph/list item
     let spanText = span.text;
-    if (isCodeBlock) {
+    if (isCodeBlock || isListItem) {
       spanText = spanText.replace(/\n/g, '\u000B');
     }
     
