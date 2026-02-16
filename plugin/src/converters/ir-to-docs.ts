@@ -11,6 +11,10 @@ import { getMonoFont, getElementSpacing } from './config';
 import { debug } from './debug';
 import { getCalloutDefinition, CALLOUT_BY_TYPE } from './callout-config';
 
+// =============================================================================
+// LIST TRACKING
+// =============================================================================
+
 /**
  * Builder class for tracking and creating list ranges.
  * 
@@ -144,6 +148,10 @@ class ListRangeBuilder {
     }
   }
 }
+
+// =============================================================================
+// MAIN ENTRY POINT
+// =============================================================================
 
 /**
  * Convert IR document to plain text with style ranges.
@@ -302,6 +310,10 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   return result;
 }
 
+// =============================================================================
+// PARAGRAPH CONVERSION HELPERS
+// =============================================================================
+
 /**
  * Convert a paragraph to text and inline style ranges.
  * 
@@ -367,6 +379,10 @@ function getParagraphStyle(para: Paragraph): string {
   }
 }
 
+// =============================================================================
+// DOCS API REQUEST BUILDERS
+// =============================================================================
+
 /**
  * Build Google Docs API batchUpdate requests from plain text and ranges.
  * 
@@ -424,153 +440,173 @@ export function buildListBulletRequests(listRanges: ListRange[]): any[] {
     }));
 }
 
+// =============================================================================
+// PARAGRAPH STYLE HELPERS
+// =============================================================================
+
+/** RGB color type for paragraph styling */
+interface RgbColor {
+  red: number;
+  green: number;
+  blue: number;
+}
+
+/** Build border style object */
+function buildBorderStyle(width: number, padding: number, color: RgbColor): any {
+  return {
+    width: { magnitude: width, unit: 'PT' },
+    padding: { magnitude: padding, unit: 'PT' },
+    color: { color: { rgbColor: color } },
+    dashStyle: 'SOLID',
+  };
+}
+
+/** Apply spacing to paragraph style and fields list */
+function applySpacing(
+  paragraphStyle: any,
+  fields: string[],
+  spacing: { spaceAbove?: number; spaceBelow?: number }
+): void {
+  if (spacing.spaceAbove !== undefined) {
+    paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
+    fields.push('spaceAbove');
+  }
+  if (spacing.spaceBelow !== undefined) {
+    paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
+    fields.push('spaceBelow');
+  }
+}
+
+/** Build code block style request */
+function buildCodeBlockStyle(startIndex: number, endIndex: number, installDir?: string): any {
+  const spacing = getElementSpacing('code_block', installDir);
+  const paragraphStyle: any = {
+    shading: {
+      backgroundColor: {
+        color: { rgbColor: { red: 0.96, green: 0.96, blue: 0.96 } },
+      },
+    },
+    borderLeft: buildBorderStyle(1, 6, { red: 0.8, green: 0.8, blue: 0.8 }),
+  };
+  
+  const fields = ['shading', 'borderLeft'];
+  applySpacing(paragraphStyle, fields, spacing);
+  
+  return {
+    updateParagraphStyle: {
+      range: { startIndex, endIndex },
+      paragraphStyle,
+      fields: fields.join(','),
+    },
+  };
+}
+
+/** Build code language label style request */
+function buildCodeLangLabelStyle(startIndex: number, endIndex: number, installDir?: string): any {
+  const spacing = getElementSpacing('code_lang_label', installDir);
+  const paragraphStyle: any = { alignment: 'END' };
+  
+  const fields = ['alignment'];
+  applySpacing(paragraphStyle, fields, spacing);
+  
+  return {
+    updateParagraphStyle: {
+      range: { startIndex, endIndex },
+      paragraphStyle,
+      fields: fields.join(','),
+    },
+  };
+}
+
+/** Build callout style request */
+function buildCalloutStyle(
+  startIndex: number,
+  endIndex: number,
+  calloutTypeName: string,
+  installDir?: string
+): any | null {
+  const def = CALLOUT_BY_TYPE[calloutTypeName as keyof typeof CALLOUT_BY_TYPE];
+  if (!def) return null;
+  
+  const spacing = getElementSpacing('callout', installDir);
+  
+  // Create lighter shade for background (mix with white)
+  const bgColor: RgbColor = {
+    red: 0.95 + def.rgbColor.red * 0.05,
+    green: 0.95 + def.rgbColor.green * 0.05,
+    blue: 0.95 + def.rgbColor.blue * 0.05,
+  };
+  
+  const paragraphStyle: any = {
+    shading: {
+      backgroundColor: { color: { rgbColor: bgColor } },
+    },
+    borderLeft: buildBorderStyle(3, 8, def.rgbColor),
+    borderTop: buildBorderStyle(1, 4, def.rgbColor),
+    borderBottom: buildBorderStyle(1, 4, def.rgbColor),
+    borderRight: buildBorderStyle(1, 4, def.rgbColor),
+  };
+  
+  const fields = ['shading', 'borderLeft', 'borderTop', 'borderBottom', 'borderRight'];
+  applySpacing(paragraphStyle, fields, spacing);
+  
+  return {
+    updateParagraphStyle: {
+      range: { startIndex, endIndex },
+      paragraphStyle,
+      fields: fields.join(','),
+    },
+  };
+}
+
+/** Build named style request (for headings, normal text, etc.) */
+function buildNamedStyle(startIndex: number, endIndex: number, styleName: string): any {
+  return {
+    updateParagraphStyle: {
+      range: { startIndex, endIndex },
+      paragraphStyle: { namedStyleType: styleName },
+      fields: 'namedStyleType',
+    },
+  };
+}
+
+// =============================================================================
+// PARAGRAPH STYLE REQUEST BUILDER
+// =============================================================================
+
 /**
  * Build a paragraph style request.
+ * Delegates to specific style builders based on the style type.
  */
 function buildParagraphStyleRequest(range: ParaRange, monoFont: string, installDir?: string): any {
   // Docs API uses 1-based indices
   const startIndex = range.start + 1;
   const endIndex = range.end + 1;
   
+  // Code blocks get special styling (shading + border + spacing)
   if (range.style === 'CODEBLOCK') {
-    // Code blocks get special styling (shading + border + spacing)
-    const spacing = getElementSpacing('code_block', installDir);
-    const paragraphStyle: any = {
-      shading: {
-        backgroundColor: {
-          color: { rgbColor: { red: 0.96, green: 0.96, blue: 0.96 } },
-        },
-      },
-      borderLeft: {
-        width: { magnitude: 1, unit: 'PT' },
-        padding: { magnitude: 6, unit: 'PT' },
-        color: { color: { rgbColor: { red: 0.8, green: 0.8, blue: 0.8 } } },
-        dashStyle: 'SOLID',
-      },
-    };
-    
-    // Build fields list dynamically based on what's set
-    const fields = ['shading', 'borderLeft'];
-    if (spacing.spaceAbove !== undefined) {
-      paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
-      fields.push('spaceAbove');
-    }
-    if (spacing.spaceBelow !== undefined) {
-      paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
-      fields.push('spaceBelow');
-    }
-    
-    return {
-      updateParagraphStyle: {
-        range: { startIndex, endIndex },
-        paragraphStyle,
-        fields: fields.join(','),
-      },
-    };
+    return buildCodeBlockStyle(startIndex, endIndex, installDir);
   }
   
+  // Language label: right-aligned, configurable spacing
   if (range.style === 'CODE_LANG_LABEL') {
-    // Language label: right-aligned, configurable spacing
-    const spacing = getElementSpacing('code_lang_label', installDir);
-    const paragraphStyle: any = {
-      alignment: 'END',
-    };
-    
-    const fields = ['alignment'];
-    if (spacing.spaceAbove !== undefined) {
-      paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
-      fields.push('spaceAbove');
-    }
-    if (spacing.spaceBelow !== undefined) {
-      paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
-      fields.push('spaceBelow');
-    }
-    
-    return {
-      updateParagraphStyle: {
-        range: { startIndex, endIndex },
-        paragraphStyle,
-        fields: fields.join(','),
-      },
-    };
+    return buildCodeLangLabelStyle(startIndex, endIndex, installDir);
   }
   
-  // Check for callout styles (CALLOUT_NOTE, CALLOUT_INFO, etc.)
+  // Callout styles (CALLOUT_NOTE, CALLOUT_INFO, etc.)
   if (range.style.startsWith('CALLOUT_')) {
     const calloutTypeName = range.style.replace('CALLOUT_', '').toLowerCase();
-    const def = CALLOUT_BY_TYPE[calloutTypeName as keyof typeof CALLOUT_BY_TYPE];
-    
-    if (def) {
-      const spacing = getElementSpacing('callout', installDir);
-      
-      // Create lighter shade for background (mix with white)
-      const bgColor = {
-        red: 0.95 + def.rgbColor.red * 0.05,
-        green: 0.95 + def.rgbColor.green * 0.05,
-        blue: 0.95 + def.rgbColor.blue * 0.05,
-      };
-      
-      const paragraphStyle: any = {
-        shading: {
-          backgroundColor: {
-            color: { rgbColor: bgColor },
-          },
-        },
-        borderLeft: {
-          width: { magnitude: 3, unit: 'PT' },
-          padding: { magnitude: 8, unit: 'PT' },
-          color: { color: { rgbColor: def.rgbColor } },
-          dashStyle: 'SOLID',
-        },
-        borderTop: {
-          width: { magnitude: 1, unit: 'PT' },
-          padding: { magnitude: 4, unit: 'PT' },
-          color: { color: { rgbColor: def.rgbColor } },
-          dashStyle: 'SOLID',
-        },
-        borderBottom: {
-          width: { magnitude: 1, unit: 'PT' },
-          padding: { magnitude: 4, unit: 'PT' },
-          color: { color: { rgbColor: def.rgbColor } },
-          dashStyle: 'SOLID',
-        },
-        borderRight: {
-          width: { magnitude: 1, unit: 'PT' },
-          padding: { magnitude: 4, unit: 'PT' },
-          color: { color: { rgbColor: def.rgbColor } },
-          dashStyle: 'SOLID',
-        },
-      };
-      
-      const fields = ['shading', 'borderLeft', 'borderTop', 'borderBottom', 'borderRight'];
-      if (spacing.spaceAbove !== undefined) {
-        paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
-        fields.push('spaceAbove');
-      }
-      if (spacing.spaceBelow !== undefined) {
-        paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
-        fields.push('spaceBelow');
-      }
-      
-      return {
-        updateParagraphStyle: {
-          range: { startIndex, endIndex },
-          paragraphStyle,
-          fields: fields.join(','),
-        },
-      };
-    }
+    const calloutStyle = buildCalloutStyle(startIndex, endIndex, calloutTypeName, installDir);
+    if (calloutStyle) return calloutStyle;
   }
   
   // Regular paragraph with named style
-  return {
-    updateParagraphStyle: {
-      range: { startIndex, endIndex },
-      paragraphStyle: { namedStyleType: range.style },
-      fields: 'namedStyleType',
-    },
-  };
+  return buildNamedStyle(startIndex, endIndex, range.style);
 }
+
+// =============================================================================
+// TEXT STYLE REQUEST BUILDERS
+// =============================================================================
 
 /**
  * Build text style requests for a text range.
