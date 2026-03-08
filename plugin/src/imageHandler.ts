@@ -377,8 +377,6 @@ export async function uploadImageToGCS(
   
   log(`    Direct upload completed, size: ${uploadResult.size}`);
   
-  console.log(`[imageHandler] Uploaded: ${objectName}`);
-  
   // Make object temporarily public
   log(`    Setting public ACL...`);
   await storage.objectAccessControls.insert({
@@ -412,10 +410,9 @@ export async function revokePublicAccess(
       object: objectName,
       entity: 'allUsers',
     });
-    console.log(`[imageHandler] Revoked public access: ${objectName}`);
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Don't fail if cleanup fails - bucket lifecycle will handle it
-    console.warn(`[imageHandler] Failed to revoke access for ${objectName}:`, error?.message);
+    console.warn(`[imageHandler] Failed to revoke access for ${objectName}:`, error instanceof Error ? error.message : error);
   }
 }
 
@@ -428,13 +425,9 @@ export async function cleanupImageAccess(
   bucketName: string,
   uploadedObjects: GCSUploadResult[]
 ): Promise<void> {
-  console.log(`[imageHandler] Cleaning up ${uploadedObjects.length} uploaded objects`);
-  
   for (const obj of uploadedObjects) {
     await revokePublicAccess(storage, bucketName, obj.objectName);
   }
-  
-  console.log(`[imageHandler] Cleanup complete`);
 }
 
 /**
@@ -639,10 +632,7 @@ export function buildImageInsertRequests(
       }
     });
     
-    console.log(`[imageHandler] Insert at ${insertPosition}: ${publicUrl}`);
   }
-  
-  console.log(`[imageHandler] Built ${requests.length} insert requests`);
   return { requests };
 }
 

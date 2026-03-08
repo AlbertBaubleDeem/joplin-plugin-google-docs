@@ -63,10 +63,9 @@ export async function pullNote(params: Params): Promise<PullResult> {
 
   // Using buildConversionDocFromTabs for tab selection support;
   // provider's getDocument() could be extended to support tabs in future
-  const sel = await buildConversionDocFromTabs(ctx.docs, binding.fileId, { tabId: binding.tabId });
-  const convertDoc = (sel as any).convertDoc;
-  const tabCount = (sel as any).tabCount || 0;
-  const usedTabTitle = (sel as any).usedTabTitle || '';
+  const { convertDoc, tabCount, usedTabTitle = '' } = await buildConversionDocFromTabs(
+    ctx.docs, binding.fileId, { tabId: binding.tabId }
+  );
 
   const md = convertDocumentToMarkdown(convertDoc, { installDir });
 

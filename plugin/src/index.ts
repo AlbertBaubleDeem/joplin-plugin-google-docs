@@ -42,7 +42,6 @@ async function handleError(e: unknown, errorPrefix: string): Promise<void> {
   const { installDir, dataDir } = await getDirs();
   
   if (isAuthError(e)) {
-    console.log('[gdocs] handleError - detected auth error');
     await handleAuthError(joplin, e, installDir, dataDir);
   } else {
     const err = e as { response?: { data?: unknown }; message?: string };
@@ -194,13 +193,11 @@ async function authorizeCmd(): Promise<void> {
 
 joplin.plugins.register({
   onStart: async function() {
-    console.log('[gdocs] Plugin onStart called');
     const { installDir, dataDir } = await getDirs();
     
     // Register settings
     try {
       await registerSettings(joplin);
-      console.log('[gdocs] Registered plugin settings');
     } catch (e) {
       console.warn('[gdocs] Failed to register settings:', e);
     }
@@ -213,9 +210,6 @@ joplin.plugins.register({
       if (enableSyncIcons) {
         const renderer = createSyncStatusRenderer(dataDir);
         await joplin.views.noteList.registerRenderer(renderer);
-        console.log('[gdocs] Registered note list renderer:', rendererId);
-      } else {
-        console.log('[gdocs] Sync icons disabled - skipping renderer registration');
       }
     } catch (e) {
       console.warn('[gdocs] Failed to register note list renderer:', e);
@@ -238,7 +232,6 @@ joplin.plugins.register({
     try {
       const wizardCompleted = await joplin.settings.value('wizardCompleted');
       if (!wizardCompleted && isSetupNeeded(installDir)) {
-        console.log('[gdocs] First run detected - launching setup wizard');
         const result = await runSetupWizard({ j: joplin, installDir, dataDir });
         if (result.completed) {
           // Mark wizard as completed so it won't run again

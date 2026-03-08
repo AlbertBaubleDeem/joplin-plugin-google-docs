@@ -42,14 +42,22 @@ export interface BindingStrategy {
   decide(doc: DocLike, analysis: StructureAnalysis): StructuralDecision;
 }
 
+type RawTabEntry = {
+  id?: string;
+  tabId?: string;
+  tab?: { id?: string };
+  name?: string;
+  title?: string;
+};
+
 export function extractTabs(doc: DocLike): TabInfo[] {
   const tabs: TabInfo[] = [];
   const seen = new Set<string>();
-  // Only use explicit tabs metadata when present. Do not infer from body yet.
-  const anyDoc: any = doc as any;
-  const explicit = anyDoc?.tabs || anyDoc?.documentTabs || anyDoc?.tabList;
+  // Google Docs API response may include tabs under different property names
+  const extended = doc as DocLike & { tabs?: RawTabEntry[]; documentTabs?: RawTabEntry[]; tabList?: RawTabEntry[] };
+  const explicit = extended.tabs || extended.documentTabs || extended.tabList;
   if (Array.isArray(explicit)) {
-    explicit.forEach((t: any, idx: number) => {
+    explicit.forEach((t, idx) => {
       const id = String(t.id || t.tabId || t.tab?.id || idx);
       if (!seen.has(id)) { seen.add(id); tabs.push({ tabId: id, name: t.name || t.title, index: idx }); }
     });
@@ -63,7 +71,7 @@ export class SingleDocumentBindingStrategy implements BindingStrategy {
     let titleParaText: string | undefined;
     const tabs = extractTabs(doc);
     for (const c of content) {
-      const p = (c as any)?.paragraph;
+      const p = (c as { paragraph?: { elements?: { textRun?: { content?: string } }[]; paragraphStyle?: { namedStyleType?: string } } }).paragraph;
       if (!p?.elements?.length) continue;
       if (p?.paragraphStyle?.namedStyleType === 'TITLE') {
         let text = '';
@@ -143,37 +151,36 @@ export async function buildConversionDocFromTabs(docsClient: any, documentId: st
     const tabs = Array.isArray(tabsDoc?.data?.tabs) ? tabsDoc.data.tabs : [];
     tabCount = tabs.length;
     if (tabCount > 0) {
-      let picked: any = null;
+      // Tab shape varies across API versions -- try multiple property paths
+      type RawTab = Record<string, unknown>;
+      const tabsTyped = tabs as RawTab[];
+      let picked: RawTab | undefined;
       if (opts?.tabId) {
-        picked = tabs.find((t: any) => (t?.tabProperties?.tabId === opts.tabId) || (t?.id === opts.tabId));
+        picked = tabsTyped.find(t => {
+          const props = t.tabProperties as { tabId?: string } | undefined;
+          return props?.tabId === opts.tabId || t.id === opts.tabId;
+        });
       }
-      if (!picked) picked = tabs[0];
-      const contentArr = Array.isArray(picked?.documentTab?.body?.content) ? picked.documentTab.body.content
-        : Array.isArray(picked?.document?.body?.content) ? picked.document.body.content
-        : Array.isArray(picked?.body?.content) ? picked.body.content
-        : Array.isArray(picked?.tab?.body?.content) ? picked.tab.body.content
-        : [];
-      
-      // Get inlineObjects - check both tab level and document level
-      // When using includeTabsContent=true, inlineObjects may be in documentTab
-      const tabInlineObjects = picked?.documentTab?.inlineObjects 
-        || picked?.document?.inlineObjects 
-        || picked?.inlineObjects 
-        || {};
+      if (!picked) picked = tabsTyped[0];
+
+      // Resolve body content from whichever nesting the API used
+      const dt = picked.documentTab as { body?: { content?: unknown[] }; inlineObjects?: Record<string, unknown>; lists?: Record<string, unknown> } | undefined;
+      const dc = picked.document as { body?: { content?: unknown[] }; inlineObjects?: Record<string, unknown>; lists?: Record<string, unknown> } | undefined;
+      const pb = picked.body as { content?: unknown[] } | undefined;
+      const pt = picked.tab as { body?: { content?: unknown[] } } | undefined;
+      const contentArr = dt?.body?.content || dc?.body?.content || pb?.content || pt?.body?.content || [];
+
+      // Merge inline objects and lists from both tab and document level (tab takes precedence)
+      const tabInlineObjects = dt?.inlineObjects || dc?.inlineObjects || (picked.inlineObjects as Record<string, unknown>) || {};
       const docInlineObjects = tabsDoc?.data?.inlineObjects || {};
-      // Merge both (tab-level takes precedence)
       const inlineObjects = { ...docInlineObjects, ...tabInlineObjects };
-      
-      // Get lists - check both tab level and document level for list type detection
-      const tabLists = picked?.documentTab?.lists 
-        || picked?.document?.lists 
-        || picked?.lists 
-        || {};
+
+      const tabLists = dt?.lists || dc?.lists || (picked.lists as Record<string, unknown>) || {};
       const docLists = tabsDoc?.data?.lists || {};
-      // Merge both (tab-level takes precedence)
       const lists = { ...docLists, ...tabLists };
-      
-      usedTabTitle = picked?.tabProperties?.title || picked?.name || picked?.title || '';
+
+      const props = picked.tabProperties as { title?: string } | undefined;
+      usedTabTitle = props?.title || (picked.name as string) || (picked.title as string) || '';
       return { 
         convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects, lists }, 
         tabCount, 

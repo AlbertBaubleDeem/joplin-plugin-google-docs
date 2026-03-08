@@ -33,7 +33,6 @@ export async function toggleConverterDebug(params: ToggleDebugParams): Promise<v
   setDebugMode(converterDebugEnabled, dataDir);
 
   const logPath = getDebugLogPath();
-  console.log('[gdocs] Debug enabled:', converterDebugEnabled, 'logPath:', logPath);
 
   if (converterDebugEnabled && logPath) {
     const exists = existsSync(logPath);

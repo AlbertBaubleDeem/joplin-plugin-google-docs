@@ -42,8 +42,9 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
   const dId = 'gdocsDrivePicker-' + Date.now();
   const d = await j.views.dialogs.create(dId);
   
-  // Disable fit to content to get full dialog width
-  await (j.views.dialogs as any).setFitToContent?.(d, false);
+  // setFitToContent is not in the stable API types but available at runtime
+  const dialogs = j.views.dialogs as { setFitToContent?: (id: string, fit: boolean) => Promise<void> };
+  await dialogs.setFitToContent?.(d, false);
 
   while (true) {
     // Format the modified time nicely
@@ -184,7 +185,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     const mapping = (await import('../mapping')).loadMapping(dataDir);
     const fileIdToNoteId: Record<string, string> = {};
     for (const [nid, b] of Object.entries(mapping.notes || {})) {
-      if (b && (b as any).fileId) fileIdToNoteId[(b as any).fileId as string] = nid;
+      if (b?.fileId) fileIdToNoteId[b.fileId] = nid;
     }
     
     const skipped: string[] = [];
@@ -205,8 +206,8 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
       const title = (meta?.name && String(meta.name)) || 'Imported Document';
       
       try {
-        const sel = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
-        const md = convertDocumentToMarkdown((sel as any).convertDoc, { installDir });
+        const { convertDoc } = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
+        const md = convertDocumentToMarkdown(convertDoc, { installDir });
         const newNote = await createNote(j, title, md, targetFolderId);
         bindNote(dataDir, newNote.id, { fileId: fid });
         

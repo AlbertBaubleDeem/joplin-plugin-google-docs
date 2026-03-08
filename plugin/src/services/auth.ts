@@ -17,7 +17,7 @@ const loadEnvFromFile = (installDir: string): void => {
     const env = readFileSync(envPath, 'utf8');
     for (const line of env.split('\n')) {
       const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-      if (m) (process as any).env[m[1]] = m[2];
+      if (m) process.env[m[1]] = m[2];
     }
   }
 };
@@ -27,9 +27,9 @@ const loadEnvFromFile = (installDir: string): void => {
  */
 export function getOAuthCredentials(): { clientId: string; clientSecret: string; redirectUri: string } {
   return {
-    clientId: (process as any).env.GOOGLE_CLIENT_ID || '',
-    clientSecret: (process as any).env.GOOGLE_CLIENT_SECRET || '',
-    redirectUri: (process as any).env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth2callback',
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth2callback',
   };
 }
 

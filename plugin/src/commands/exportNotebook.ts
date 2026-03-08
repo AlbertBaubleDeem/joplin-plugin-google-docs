@@ -104,18 +104,14 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
 
   const syncFolderId = await ctx.provider.ensureSyncFolder();
 
-  console.log('[exportNotebook] Creating folder for notebook:', folderData.title);
   const notebookFolder = await ctx.provider.createFolder(
     folderData.title || 'Untitled Notebook',
     syncFolderId
   );
   const notebookFolderId = notebookFolder.id;
 
-  console.log('[exportNotebook] Creating individual documents for each note in the notebook');
-
   for (let i = 0; i < unboundNotes.length; i++) {
     const note = unboundNotes[i];
-    console.log(`[exportNotebook] Creating document ${i + 1}/${unboundNotes.length} for note: ${note.title}`);
 
     const createResult = await ctx.provider.createDocument(
       note.title || `Note ${i + 1}`,
@@ -133,10 +129,7 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
       fileId: docId,
       lastSyncTs: Date.now(),
     });
-    console.log(`[exportNotebook] Bound note ${note.id} to doc ${docId}`);
-
     await pushNoteById({ j, installDir, dataDir, noteId: note.id });
-    console.log(`[exportNotebook] Pushed content for note ${note.id}`);
   }
 
   // Using direct drive call since provider doesn't have folder-specific appProperties method
@@ -155,14 +148,10 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
   const updatedMapping = loadMapping(dataDir);
   updatedMapping.notebooks[folderId!] = {
     fileId: notebookFolderId,
-    noteIds: unboundNotes.map((n: any) => n.id),
+    noteIds: unboundNotes.map((n: { id: string }) => n.id),
     lastSyncTs: Date.now(),
   };
   saveMapping(dataDir, updatedMapping);
-
-  console.log(
-    `[exportNotebook] Successfully created notebook folder ${notebookFolderId} with ${unboundNotes.length} documents`
-  );
 
   return {
     fileId: notebookFolderId,

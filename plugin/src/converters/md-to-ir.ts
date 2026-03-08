@@ -70,7 +70,6 @@ const extractCallouts = (markdown: string): { markdown: string; callouts: Extrac
 export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocument {
   const cfg = config || loadConfig();
   
-  console.log('[converter] markdownToIR called, input length:', markdown.length);
   
   // Normalize line endings
   const normalized = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -86,7 +85,6 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
   
   // Use marked's lexer to tokenize
   const tokens = marked.lexer(preprocessed);
-  console.log('[converter] tokens generated:', tokens.length);
   debug('md-to-ir', 'tokens', tokens);
   
   // Convert tokens to IR paragraphs
@@ -268,7 +266,7 @@ const processListToken = (
         // Other token types - try to extract text
         debug('md-to-ir', 'list-item-unknown-token', { type: t.type, token: t });
         if ('text' in t) {
-          itemSpans.push({ text: (t as any).text || '' });
+          itemSpans.push({ text: (t as { text?: string }).text || '' });
         }
       }
     }
@@ -347,7 +345,7 @@ const inlineTokenToSpans = (token: Token): StyledSpan[] => {
     default:
       // Unknown inline token - try to extract text
       if ('text' in token) {
-        return [{ text: (token as any).text || '' }];
+        return [{ text: (token as { text?: string }).text || '' }];
       }
       debug('md-to-ir', 'unknown-inline-token', { type: token.type, token });
       return [];

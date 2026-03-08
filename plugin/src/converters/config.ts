@@ -108,7 +108,6 @@ const ensureUserConfig = (): void => {
     try {
       const defaultContent = readFileSync(defaultCfgPath, 'utf8');
       writeFileSync(userCfgPath, defaultContent, 'utf8');
-      console.log('[gdocs] Created user config at', userCfgPath);
     } catch (err) {
       console.warn('[gdocs] Failed to copy default config to dataDir:', err);
     }

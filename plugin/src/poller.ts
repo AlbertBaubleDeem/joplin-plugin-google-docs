@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { loadMapping, Mapping as PluginMapping } from './mapping';
+import { loadMapping, Mapping as PluginMapping, NoteBinding } from './mapping';
 import { pushNote } from './commands/pushNote';
 import { pullNote } from './commands/pullNote';
 import { SyncContext } from './services/syncContext';
@@ -17,6 +17,10 @@ type SyncDecision = {
   tabMatched: boolean;
   action: 'pull' | 'push';
   reason: string;
+};
+
+type PollerState = {
+  pageToken?: string;
 };
 
 const loadJson = <T>(p: string, fallback: T): T => {
@@ -53,11 +57,11 @@ export class MinimalPoller {
     return this.ctx.docs;
   }
 
-  private loadState(): any {
-    return loadJson<any>(this.statePath, {});
+  private loadState(): PollerState {
+    return loadJson<PollerState>(this.statePath, {});
   }
 
-  private saveState(s: any) {
+  private saveState(s: PollerState) {
     fs.writeFileSync(this.statePath, JSON.stringify(s, null, 2));
   }
 
@@ -129,12 +133,13 @@ export class MinimalPoller {
 
         const meta = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
         const tabs = meta.data.tabs || [];
-        const stack = [...tabs];
+        type TabLike = { tabProperties?: { tabId?: string }; childTabs?: TabLike[] };
+        const stack: TabLike[] = [...tabs as TabLike[]];
         let found = false;
         while (stack.length) {
-          const t: any = stack.shift();
-          if (t?.tabProperties?.tabId === binding.tabId) { found = true; break; }
-          for (const c of t?.childTabs || []) stack.push(c);
+          const t = stack.shift()!;
+          if (t.tabProperties?.tabId === binding.tabId) { found = true; break; }
+          for (const c of t.childTabs || []) stack.push(c);
         }
         if (found) {
           console.info('[plugin-poller] Would update note', noteId, 'from file', fileId, 'tab', binding.tabId);
@@ -154,7 +159,7 @@ export class MinimalPoller {
     }
     // Fallback: direct revision comparison for mapped files not reported by Drive changes
     // Batch these in parallel for performance
-    const uncheckedNotes: Array<{ noteId: string; fileId: string; binding: any }> = [];
+    const uncheckedNotes: Array<{ noteId: string; fileId: string; binding: NoteBinding }> = [];
     for (const [noteId, b] of Object.entries(mapping.notes)) {
       const fileId = b.fileId;
       if (!fileId || seenChanged[fileId]) continue;
@@ -165,7 +170,7 @@ export class MinimalPoller {
       const revisionResults = await Promise.allSettled(
         uncheckedNotes.map(async ({ noteId, fileId, binding }) => {
           const meta = await docs.documents.get({ documentId: fileId });
-          const rev = String((meta.data as any).revisionId || '');
+          const rev = String((meta.data as { revisionId?: string }).revisionId || '');
           return { noteId, fileId, binding, rev };
         })
       );
@@ -199,18 +204,18 @@ export class MinimalPoller {
     if (base.items.length > 0) {
       const driveChangeResults = await Promise.allSettled(
         base.items.map(async (it) => {
-          const nb = (mapping.notes && mapping.notes[it.noteId]) || {};
+          const nb: NoteBinding = (mapping.notes && mapping.notes[it.noteId]) || {};
           const [noteUpdated, docModified, currentRevisionId] = await Promise.all([
             fetchNoteUpdated(j, it.noteId),
             fetchDriveModified(drive, it.fileId),
             fetchDocRevisionId(docs, it.fileId),
           ]);
           const d = decideAction({
-            lastKnownRevisionId: (nb as any).lastKnownRevisionId,
+            lastKnownRevisionId: nb.lastKnownRevisionId,
             currentRevisionId,
             noteUpdated,
             docModified,
-            lastSyncTs: (nb as any).lastSyncTs,
+            lastSyncTs: nb.lastSyncTs,
           });
           return { ...it, action: d.action, reason: d.reason };
         })
@@ -233,10 +238,9 @@ export class MinimalPoller {
     const tolerance = 2000; // 2 second tolerance to avoid timing race
     
     // Collect notes that need checking
-    const notesToCheck: Array<{ noteId: string; fileId: string; nb: any }> = [];
-    for (const [noteId, nbAny] of Object.entries(mapping.notes)) {
-      const nb = nbAny as any;
-      const fileId = nb && nb.fileId;
+    const notesToCheck: Array<{ noteId: string; fileId: string; nb: NoteBinding }> = [];
+    for (const [noteId, nb] of Object.entries(mapping.notes)) {
+      const fileId = nb?.fileId;
       if (!fileId || decidedNotes.has(noteId)) continue;
       notesToCheck.push({ noteId, fileId, nb });
     }
@@ -310,14 +314,14 @@ async function fetchNoteUpdated(j: any, noteId: string): Promise<number> {
   return Number(meta.updated_time || 0);
 }
 
-async function fetchDriveModified(drive: any, fileId: string): Promise<number> {
+async function fetchDriveModified(drive: SyncContext['drive'], fileId: string): Promise<number> {
   const fileMeta = await drive.files.get({ fileId, fields: 'id, modifiedTime' });
-  return Date.parse((fileMeta.data && (fileMeta.data as any).modifiedTime) || 0);
+  return Date.parse((fileMeta.data as { modifiedTime?: string }).modifiedTime || '0');
 }
 
-async function fetchDocRevisionId(docs: any, fileId: string): Promise<string> {
+async function fetchDocRevisionId(docs: SyncContext['docs'], fileId: string): Promise<string> {
   const docRes = await docs.documents.get({ documentId: fileId });
-  return String((docRes.data as any).revisionId || '');
+  return String((docRes.data as { revisionId?: string }).revisionId || '');
 }
 
 const decideAction = (args: {

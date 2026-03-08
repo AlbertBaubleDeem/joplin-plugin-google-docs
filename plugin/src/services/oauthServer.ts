@@ -183,9 +183,7 @@ export function startOAuthServer(
       }
     });
     
-    server.listen(port, () => {
-      console.log(`[gdocs-oauth] Listening on http://localhost:${port}${redirectPath}`);
-    });
+    server.listen(port);
   });
 }
 

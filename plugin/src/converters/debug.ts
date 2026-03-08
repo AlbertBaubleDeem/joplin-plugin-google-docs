@@ -29,17 +29,14 @@ const maxLogEntries = 100;
  */
 export function setDebugMode(enabled: boolean, logDir?: string): void {
   debugEnabled = enabled;
-  console.log('[converter] setDebugMode called:', enabled, 'logDir:', logDir);
   
   if (enabled && logDir) {
     debugLogPath = join(logDir, 'converter-debug.log');
-    // Clear previous log or append
     try {
-      const header = `\n=== Converter Debug Session ===\nStarted: ${new Date().toISOString()}\nDebug enabled: ${enabled}\n\n`;
+      const header = `\n=== Converter Debug Session ===\nStarted: ${new Date().toISOString()}\n\n`;
       appendFileSync(debugLogPath, header);
-      console.log('[converter] Debug log path set to:', debugLogPath);
-    } catch (e) {
-      console.error('[converter] Failed to write debug log file:', e);
+    } catch {
+      // Ignore file write errors
     }
   } else if (!enabled) {
     debugLogPath = null;
@@ -67,8 +64,7 @@ export function getDebugLogPath(): string | null {
  * @param input - Description of input
  * @param output - The output or intermediate state
  */
-export function debug(step: string, input: string, output: any): void {
-  console.log('[converter:debug] called:', step, input, 'debugEnabled:', debugEnabled);
+export function debug(step: string, input: string, output: unknown): void {
   if (!debugEnabled) return;
   
   const entry: ConversionDebug = {
@@ -80,13 +76,9 @@ export function debug(step: string, input: string, output: any): void {
   
   debugLog.push(entry);
   
-  // Trim if too long
   if (debugLog.length > maxLogEntries) {
     debugLog.shift();
   }
-  
-  // Log to console
-  console.log(`[converter:${step}] ${input}:`, output);
   
   // Log to file
   if (debugLogPath) {
@@ -119,7 +111,7 @@ export function clearDebugLog(): void {
  * Safely serialize an object for logging.
  * Handles circular references and large objects.
  */
-const safeSerialize = (obj: any, maxDepth = 5): any => {
+const safeSerialize = (obj: unknown, maxDepth = 5): unknown => {
   if (maxDepth <= 0) return '[max depth]';
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
@@ -131,9 +123,9 @@ const safeSerialize = (obj: any, maxDepth = 5): any => {
     return obj.map(o => safeSerialize(o, maxDepth - 1));
   }
   
-  const result: Record<string, any> = {};
+  const result: Record<string, unknown> = {};
   for (const key of Object.keys(obj)) {
-    result[key] = safeSerialize(obj[key], maxDepth - 1);
+    result[key] = safeSerialize((obj as Record<string, unknown>)[key], maxDepth - 1);
   }
   return result;
 };

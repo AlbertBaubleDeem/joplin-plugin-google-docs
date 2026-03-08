@@ -38,9 +38,34 @@ export type PushResult = {
   debugLog?: string[];
 };
 
-/**
- * Core push logic - extracted to avoid duplication
- */
+// Typed subset of a Google Docs API document response
+type ContentElement = {
+  endIndex?: number;
+  paragraph?: unknown;
+};
+
+type DocBody = {
+  content?: ContentElement[];
+};
+
+type DocTab = {
+  documentTab?: { body?: DocBody };
+  body?: DocBody;
+};
+
+type DocResponseData = {
+  body?: DocBody;
+  tabs?: DocTab[];
+  revisionId?: string;
+};
+
+type DocState = {
+  body: DocBody;
+  content: ContentElement[];
+  endIndex: number;
+  revisionId: string;
+};
+
 import { appendFileSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -79,6 +104,36 @@ export function getDebugLogFromFile(dataDir: string): string {
   }
 }
 
+/**
+ * Fetches a Google Doc and extracts its body content, preferring the first tab
+ * when tabs are present. Returns the body, content array, end index, and revision ID.
+ */
+const getDocState = async (
+  docs: SyncContext['docs'],
+  fileId: string,
+  includeTabs = true
+): Promise<DocState> => {
+  const res = await docs.documents.get({
+    documentId: fileId,
+    ...(includeTabs ? { includeTabsContent: true } : {}),
+  });
+  const data = res.data as DocResponseData;
+  const revisionId = String(data.revisionId || '');
+
+  let body: DocBody = data.body || {};
+  if (data.tabs?.length) {
+    const firstTab = data.tabs[0];
+    body = firstTab?.documentTab?.body || firstTab?.body || body;
+  }
+
+  const content = Array.isArray(body.content) ? body.content : [];
+  const endIndex = content.length
+    ? Number(content[content.length - 1].endIndex || 1)
+    : 1;
+
+  return { body, content, endIndex, revisionId };
+};
+
 async function executePush(
   ctx: SyncContext,
   j: any,
@@ -102,7 +157,6 @@ async function executePush(
   const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
   const processImages_flag = !!gcsBucketName;
   debugLog(`GCS bucket: ${gcsBucketName || 'NOT CONFIGURED'}, processImages: ${processImages_flag}`);
-  console.log(`[pushNote] GCS bucket configured: ${gcsBucketName || 'NOT CONFIGURED'}`);
   
   // When GCS is not configured, images are preserved as markdown text (no placeholder extraction)
   const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { 
@@ -111,23 +165,19 @@ async function executePush(
   });
 
   debugLog(`Converted: ${mdRaw.length} chars -> ${plain.length} plain, ${imageRanges.length} images, ${listRanges.length} list ranges`);
-  console.log(`[pushNote] Converted markdown: ${mdRaw.length} chars -> ${plain.length} plain chars`);
-  console.log(`[pushNote] Found ${imageRanges.length} images and ${listRanges.length} list ranges in note`);
   if (imageRanges.length > 0) {
-    debugLog( `Image resources: ${JSON.stringify(imageRanges.map(r => r.resourceId))}`);
-    console.log(`[pushNote] Image resources:`, imageRanges.map(r => r.resourceId));
+    debugLog(`Image resources: ${JSON.stringify(imageRanges.map(r => r.resourceId))}`);
   }
   
   let uploadedObjects: GCSUploadResult[] = [];
   let resourceIdToUrl = new Map<string, string>();
   
   if (imageRanges.length > 0 && gcsBucketName) {
-    debugLog( `Processing ${imageRanges.length} images via GCS`);
-    console.log(`[pushNote] Processing ${imageRanges.length} images via GCS bucket: ${gcsBucketName}`);
+    debugLog(`Processing ${imageRanges.length} images via GCS`);
     
-    debugLog( `Initializing GCS storage client...`);
+    debugLog(`Initializing GCS storage client...`);
     const storage = google.storage({ version: 'v1', auth });
-    debugLog( `GCS storage client created`);
+    debugLog(`GCS storage client created`);
     
     try {
       debugLog(`Calling processImages...`);
@@ -135,29 +185,18 @@ async function executePush(
       uploadedObjects = imageResult.uploadedObjects;
       resourceIdToUrl = imageResult.resourceIdToUrl;
       debugLog(`processImages returned: ${uploadedObjects.length} uploaded`);
-    } catch (imageError: any) {
-      debugLog(`processImages ERROR: ${imageError?.message || imageError}`);
+    } catch (imageError: unknown) {
+      debugLog(`processImages ERROR: ${imageError instanceof Error ? imageError.message : imageError}`);
     }
   } else if (imageRanges.length > 0) {
-    debugLog( `Images found but GCS not configured`);
+    debugLog(`Images found but GCS not configured`);
     console.warn(`[pushNote] Note has ${imageRanges.length} images but GCS is not configured. Images will not be synced.`);
   } else {
-    debugLog( `No images in note`);
+    debugLog(`No images in note`);
   }
 
-  // Use includeTabsContent to handle documents with tabs correctly
-  const docRes = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
-  const docResData = docRes.data as any;
-  const revisionId: string = String(docResData.revisionId || '');
-  
-  let body = docResData.body || {};
-  const mainBodyEndIndex = body.content?.length ? Number(body.content[body.content.length - 1].endIndex || 1) : 1;
-  if (docResData.tabs?.length > 0) {
-    const firstTab = docResData.tabs[0];
-    body = firstTab?.documentTab?.body || firstTab?.body || body;
-  }
-  const content = Array.isArray(body.content) ? body.content : [];
-  const endIndex = content.length ? Number(content[content.length - 1].endIndex || 1) : 1;
+  // Fetch current doc state to get revision ID and content end position
+  const { endIndex, revisionId } = await getDocState(docs, fileId);
   
   const requests: any[] = [];
   // Avoid empty delete range (start==end). For empty docs endIndex is often 2.
@@ -174,31 +213,21 @@ async function executePush(
     },
   });
 
-  // Use includeTabsContent to handle documents with tabs correctly
-  let afterRes = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
-  const afterResData = afterRes.data as any;
-  let newRevisionId: string = String(afterResData.revisionId || '');
-  
-  let bodyAfterInsert = afterResData.body || {};
-  if (afterResData.tabs?.length > 0) {
-    const firstTab = afterResData.tabs[0];
-    bodyAfterInsert = firstTab?.documentTab?.body || firstTab?.body || bodyAfterInsert;
-  }
-  const contentAfterInsert = Array.isArray(bodyAfterInsert.content) ? bodyAfterInsert.content : [];
-  
-  // Find the actual last PARAGRAPH element (not section breaks or other structural elements)
-  // This gives us the true end of the writable body segment
+  // Re-fetch to get post-insert state for bullet clearing and style application
+  let afterState = await getDocState(docs, fileId);
+  let newRevisionId = afterState.revisionId;
+
+  // Find the last PARAGRAPH element (skip section breaks and other structural elements)
+  // to get the true end of the writable body segment
   let endIndexAfterInsert = 1;
-  for (let i = contentAfterInsert.length - 1; i >= 0; i--) {
-    const el = contentAfterInsert[i];
-    if (el.paragraph) {
-      endIndexAfterInsert = Number(el.endIndex || 1);
+  for (let i = afterState.content.length - 1; i >= 0; i--) {
+    if (afterState.content[i].paragraph) {
+      endIndexAfterInsert = Number(afterState.content[i].endIndex || 1);
       break;
     }
   }
-  // Fallback to last element if no paragraph found
-  if (endIndexAfterInsert === 1 && contentAfterInsert.length > 0) {
-    endIndexAfterInsert = Number(contentAfterInsert[contentAfterInsert.length - 1].endIndex || 1);
+  if (endIndexAfterInsert === 1 && afterState.content.length > 0) {
+    endIndexAfterInsert = afterState.endIndex;
   }
   
   // Clear all existing bullet formatting before applying new styles
@@ -239,19 +268,16 @@ async function executePush(
     }
   }
 
-  const docAfterText = await docs.documents.get({ documentId: fileId });
-  const bodyAfterText = (docAfterText.data as any).body || {};
-  const contentAfterText = Array.isArray(bodyAfterText.content) ? bodyAfterText.content : [];
-  const endIndexAfterText = contentAfterText.length ? Number(contentAfterText[contentAfterText.length - 1].endIndex || 1) : 1;
-  debugLog(`Document endIndex after text insertion: ${endIndexAfterText}`);
+  // Re-fetch to get end index for image insertion positioning
+  const afterTextState = await getDocState(docs, fileId, false);
+  debugLog(`Document endIndex after text insertion: ${afterTextState.endIndex}`);
   debugLog(`Image insertion check: uploadedObjects.length=${uploadedObjects.length}, resourceIdToUrl.size=${resourceIdToUrl.size}`);
   if (uploadedObjects.length > 0 && resourceIdToUrl.size > 0) {
-    console.log(`[pushNote] Inserting ${uploadedObjects.length} images into doc`);
     debugLog(`Inserting ${uploadedObjects.length} images into doc`);
     
     // textOffset of 0 because we're inserting at positions within the already-inserted text
     debugLog(`Building image insert requests...`);
-    debugLog(`Plain text length: ${plain.length}, Doc endIndex: ${endIndexAfterText}`);
+    debugLog(`Plain text length: ${plain.length}, Doc endIndex: ${afterTextState.endIndex}`);
     debugLog(`First image position: ${imageRanges[0]?.position}, Last image position: ${imageRanges[imageRanges.length-1]?.position}`);
     const { requests: imageRequests } = buildImageInsertRequests(imageRanges, resourceIdToUrl, 0, debugLog);
     debugLog(`Built ${imageRequests.length} image requests`);
@@ -269,19 +295,19 @@ async function executePush(
           requestBody: { requests: imageRequests },
         });
         debugLog(`Image batchUpdate succeeded`);
-        const replies = (imgResult.data as any)?.replies || [];
+        const replies = (imgResult.data as { replies?: unknown[] })?.replies || [];
         debugLog(`Got ${replies.length} replies from batchUpdate`);
         if (replies[0]) {
           debugLog(`First reply: ${JSON.stringify(replies[0])}`);
         }
-      } catch (imgError: any) {
-        debugLog(`Image batchUpdate ERROR: ${imgError?.message || imgError}`);
-        debugLog(`Error details: ${JSON.stringify(imgError?.response?.data || {})}`);
+      } catch (imgError: unknown) {
+        const errMsg = imgError instanceof Error ? imgError.message : String(imgError);
+        debugLog(`Image batchUpdate ERROR: ${errMsg}`);
         throw imgError;
       }
       
-      afterRes = await docs.documents.get({ documentId: fileId });
-      newRevisionId = String((afterRes.data as any).revisionId || '');
+      afterState = await getDocState(docs, fileId, false);
+      newRevisionId = afterState.revisionId;
     } else {
       debugLog(`No image requests to execute`);
     }

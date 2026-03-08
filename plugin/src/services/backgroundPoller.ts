@@ -32,38 +32,19 @@ export async function startBackgroundPoller(config: PollerConfig): Promise<void>
     const settings = await getSettings(j);
 
     // Check if auto sync is enabled and tokens exist
-    if (!settings.autoSyncEnabled) {
-      console.log('[gdocs] Auto sync is disabled');
-      return;
-    }
-
-    if (!hasValidTokens(installDir)) {
-      console.log('[gdocs] No valid tokens, skipping auto sync');
-      return;
-    }
+    if (!settings.autoSyncEnabled) return;
+    if (!hasValidTokens(installDir)) return;
 
     const intervalMs = (settings.pollIntervalMinutes || 5) * 60 * 1000;
-    if (intervalMs <= 0) {
-      console.log('[gdocs] Poll interval is 0, auto sync disabled');
-      return;
-    }
-
-    console.log('[gdocs] Starting background poller with interval:', settings.pollIntervalMinutes, 'minutes');
+    if (intervalMs <= 0) return;
 
     // Run poller function
     async function runPoller() {
       try {
-        console.log('[gdocs] Background sync running...');
         const ctx = await createSyncContext(installDir, dataDir, j);
         const poller = new MinimalPoller(ctx);
         await poller.initIfNeeded();
-        const syncRes = await poller.syncOnce(j);
-        console.log('[gdocs] Background sync complete. Matched:', syncRes.matched, 'Updated:', syncRes.updated);
-
-        // Show notification if there were updates
-        if (syncRes.updated > 0) {
-          console.log('[gdocs] Synced', syncRes.updated, 'items');
-        }
+        await poller.syncOnce(j);
       } catch (e) {
         console.error('[gdocs] Background sync error:', e);
       }
@@ -86,7 +67,6 @@ export function stopBackgroundPoller(): void {
   if (pollIntervalId) {
     clearInterval(pollIntervalId);
     pollIntervalId = null;
-    console.log('[gdocs] Background poller stopped');
   }
 }
 
@@ -109,7 +89,6 @@ export async function registerPollerSettingsListener(config: PollerConfig): Prom
         relevantKeys.some(rk => k.endsWith(rk))
       );
       if (changed) {
-        console.log('[gdocs] Sync settings changed, restarting poller');
         await restartBackgroundPoller(config);
       }
     });
