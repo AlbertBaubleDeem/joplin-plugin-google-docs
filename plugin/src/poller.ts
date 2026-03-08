@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { loadMapping, Mapping as PluginMapping, NoteBinding } from './mapping';
+import { loadMapping, saveMapping as persistMapping, Mapping as PluginMapping, NoteBinding } from './mapping';
 import { pushNote } from './commands/pushNote';
 import { pullNote } from './commands/pullNote';
 import { SyncContext } from './services/syncContext';
@@ -71,6 +71,10 @@ export class MinimalPoller {
    */
   private getMapping(): PluginMapping {
     return loadMapping(this.dataDir);
+  }
+
+  private saveMapping(mapping: PluginMapping) {
+    persistMapping(this.dataDir, mapping);
   }
 
   /**
@@ -179,11 +183,17 @@ export class MinimalPoller {
         if (result.status !== 'fulfilled') continue;
         const { noteId, fileId, binding, rev } = result.value;
         if (!rev) continue;
-        // Revision mismatch: doc changed since last sync
-        const revisionChanged = binding.lastKnownRevisionId && rev !== binding.lastKnownRevisionId;
-        // No baseline: note is bound but was never synced -- pull to establish baseline
-        const noBaseline = !binding.lastKnownRevisionId;
-        if (revisionChanged || noBaseline) {
+
+        if (!binding.lastKnownRevisionId) {
+          // No baseline: store current revision so future polls can detect changes.
+          // Don't queue for sync -- the note and doc may already be in sync from
+          // the initial push. Let decideOnce handle it on the next poll cycle.
+          mapping.notes[noteId] = { ...binding, lastKnownRevisionId: rev };
+          this.saveMapping(mapping);
+          continue;
+        }
+
+        if (rev !== binding.lastKnownRevisionId) {
           matched += 1;
           items.push({ noteId, fileId, tabMatched: !!binding.tabId });
         }
@@ -337,17 +347,26 @@ const decideAction = (args: {
 }): { action: 'pull' | 'push' | 'skip'; reason: string } => {
   const { lastKnownRevisionId, currentRevisionId, noteUpdated, docModified, lastSyncTs } = args;
   const lastSync = Number(lastSyncTs || 0);
-  
-  // Check if doc revision changed since last sync
-  const docNewer = !!(lastKnownRevisionId && currentRevisionId && lastKnownRevisionId !== currentRevisionId);
-  if (docNewer) return { action: 'pull', reason: 'docRevisionChanged' };
-  
-  // Check if note was updated after doc and after last sync
-  // Add 2 second tolerance to avoid timing race conditions
   const tolerance = 2000;
-  const noteNewer = noteUpdated > Math.max(docModified || 0, (lastSync || 0) + tolerance);
-  if (noteNewer) return { action: 'push', reason: 'noteUpdatedAfterDoc' };
-  
-  // Nothing changed - skip instead of defaulting to pull (which would cause sync loop)
+
+  const docRevisionChanged = !!(lastKnownRevisionId && currentRevisionId && lastKnownRevisionId !== currentRevisionId);
+  const noteChangedSinceSync = noteUpdated > (lastSync + tolerance);
+
+  // Both sides changed: compare timestamps to pick the winner
+  if (docRevisionChanged && noteChangedSinceSync) {
+    return noteUpdated >= (docModified || 0)
+      ? { action: 'push', reason: 'bothChangedNoteNewer' }
+      : { action: 'pull', reason: 'bothChangedDocNewer' };
+  }
+
+  // Only doc changed
+  if (docRevisionChanged) return { action: 'pull', reason: 'docRevisionChanged' };
+
+  // Only note changed (and doc revision is the same or unknown)
+  if (noteChangedSinceSync) {
+    const docUnchanged = !lastKnownRevisionId || lastKnownRevisionId === currentRevisionId;
+    if (docUnchanged) return { action: 'push', reason: 'noteUpdatedDocUnchanged' };
+  }
+
   return { action: 'skip', reason: 'noChanges' };
 };
