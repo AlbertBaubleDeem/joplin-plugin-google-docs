@@ -237,6 +237,7 @@ const pluginConfig = { ...baseConfig, entry: './src/index.ts',
 							// already copied into /dist so we don't copy them.
 							'**/*.ts',
 							'**/*.tsx',
+							'**/tests/**',
 						],
 					},
 				},

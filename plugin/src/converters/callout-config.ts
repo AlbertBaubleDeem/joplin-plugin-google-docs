@@ -1,7 +1,7 @@
 /**
  * Callout Box Configuration
  * 
- * Defines the styling for callout boxes (note, info, question, warning, jarvis)
+ * Defines the styling for callout boxes (note, info, question, warning, jarvis, tip)
  * matching the Joplin custom CSS styling.
  */
 
@@ -70,6 +70,12 @@ export const CALLOUT_DEFINITIONS: CalloutDefinition[] = [
     rgbColor: hexToRgb('#6A5ACD'),
     symbol: '\u{1F916}', // 🤖
   },
+  {
+    type: 'tip',
+    color: '#4CAF50',
+    rgbColor: hexToRgb('#4CAF50'),
+    symbol: '\u{1F4A1}', // 💡
+  },
 ];
 
 /**
@@ -97,7 +103,7 @@ export const CALLOUT_TYPE_NAMES: CalloutType[] = CALLOUT_DEFINITIONS.map(d => d.
 
 /**
  * Regex pattern to match callout opening tags.
- * Matches: <note>, <info>, <question>, <warning>, <jarvis>
+ * Matches: <note>, <info>, <question>, <warning>, <jarvis>, <tip>
  */
 export const CALLOUT_OPEN_TAG_REGEX = new RegExp(
   `<(${CALLOUT_TYPE_NAMES.join('|')})>`,

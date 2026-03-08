@@ -11,5 +11,8 @@
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true
-	}
+	},
+	"exclude": [
+		"src/tests"
+	]
 }

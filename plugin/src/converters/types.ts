@@ -41,7 +41,7 @@ export type ParagraphType =
 /**
  * Callout box types supported by the converter.
  */
-export type CalloutType = 'note' | 'info' | 'question' | 'warning' | 'jarvis';
+export type CalloutType = 'note' | 'info' | 'question' | 'warning' | 'jarvis' | 'tip';
 
 /**
  * Element spacing configuration for Google Docs paragraphs.
@@ -141,12 +141,14 @@ export type ConverterConfig = {
  * Tracks consecutive list items of the same type.
  */
 export type ListRange = {
-  /** Start index (inclusive) */
+  /** Start index (inclusive, 0-based in plain text) */
   startIndex: number;
-  /** End index (exclusive, before trailing newline) */
+  /** End index (0-based in plain text, points past last content char) */
   endIndex: number;
   /** List type for bullet preset selection */
   listType: 'ordered' | 'unordered';
+  /** Number of tab characters in this list (consumed by createParagraphBullets API) */
+  totalTabs: number;
 };
 
 /**

@@ -169,6 +169,7 @@ function adjustListRangesForImages(
       startIndex: range.startIndex - startAdjustment,
       endIndex: range.endIndex - endAdjustment,
       listType: range.listType,
+      totalTabs: range.totalTabs,
     };
   });
 }

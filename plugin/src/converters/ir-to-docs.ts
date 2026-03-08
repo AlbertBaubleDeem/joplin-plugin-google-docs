@@ -74,8 +74,9 @@ class ListRangeBuilder {
 
   /**
    * Close the current list and add it to ranges.
-   * Adjusts endIndex by subtracting maxNesting to prevent following content
-   * from being included in deeply nested lists.
+   * Stores totalTabs per range so buildListBulletRequests can compute
+   * cumulative tab offsets (tabs consumed by earlier requests shift
+   * effective positions for later requests in the same batchUpdate).
    */
   private closeCurrentList(): void {
     if (this.currentType === null) return;
@@ -83,22 +84,20 @@ class ListRangeBuilder {
     // Accumulate tabs for final clamping calculation
     this.cumulativeTabs += this.totalTabs;
     
-    // Always subtract 1 to end BEFORE the newline character (not at it)
-    // Additionally subtract maxNesting for deeply nested lists to prevent
-    // Google Docs from including following paragraphs as list items
-    const adjustedEnd = this.currentEnd - 1 - this.maxNesting;
-    
-    if (adjustedEnd > this.currentStart) {
+    // currentEnd points past the last content character (cursor + text.length).
+    // Store it as-is — buildListBulletRequests handles the 0-to-1-based
+    // conversion and cumulative tab offset adjustments.
+    if (this.currentEnd > this.currentStart) {
       this.ranges.push({
         startIndex: this.currentStart,
-        endIndex: adjustedEnd,
+        endIndex: this.currentEnd,
         listType: this.currentType,
+        totalTabs: this.totalTabs,
       });
       debug('ir-to-docs', 'closed-list-range', {
         startIndex: this.currentStart,
-        endIndex: adjustedEnd,
+        endIndex: this.currentEnd,
         listType: this.currentType,
-        maxNesting: this.maxNesting,
         totalTabs: this.totalTabs,
         cumulativeTabs: this.cumulativeTabs,
       });
@@ -421,26 +420,41 @@ export function buildDocsRequests(
 /**
  * Build createParagraphBullets requests for list ranges.
  * 
- * @param listRanges - Array of list ranges
+ * When multiple list ranges are sent in one batchUpdate, the API processes
+ * them sequentially. Each createParagraphBullets consumes tab characters
+ * used for nesting, which shifts effective document positions for all
+ * subsequent requests. We must subtract cumulative tabs from prior ranges
+ * to keep indices aligned.
+ * 
+ * @param listRanges - Array of list ranges (must be in document order)
  * @returns Array of Docs API request objects for bullet formatting
  */
 export function buildListBulletRequests(listRanges: ListRange[]): any[] {
+  let cumulativeTabsConsumed = 0;
+
   return listRanges
     .filter(r => r.endIndex > r.startIndex)
-    .map(range => ({
-      createParagraphBullets: {
-        range: {
-          // Docs API uses 1-based indices
-          // Use endIndex without +1 to be more conservative and avoid
-          // including trailing content in the list
-          startIndex: range.startIndex + 1,
-          endIndex: range.endIndex,
+    .map(range => {
+      // Adjust indices by tabs consumed by all prior list ranges
+      const adjustedStart = range.startIndex - cumulativeTabsConsumed;
+      const adjustedEnd = range.endIndex - cumulativeTabsConsumed;
+
+      // After this request executes, its tabs will be consumed
+      cumulativeTabsConsumed += range.totalTabs;
+
+      return {
+        createParagraphBullets: {
+          range: {
+            // Convert 0-based to 1-based for Docs API
+            startIndex: adjustedStart + 1,
+            endIndex: adjustedEnd,
+          },
+          bulletPreset: range.listType === 'ordered'
+            ? 'NUMBERED_DECIMAL_NESTED'
+            : 'BULLET_DISC_CIRCLE_SQUARE',
         },
-        bulletPreset: range.listType === 'ordered' 
-          ? 'NUMBERED_DECIMAL_NESTED' 
-          : 'BULLET_DISC_CIRCLE_SQUARE',
-      },
-    }));
+      };
+    });
 }
 
 // =============================================================================
