@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
+import { exec } from 'child_process';
 import { getSettings } from '../services/settings';
 import {
   generateAuthUrl,
@@ -122,7 +123,7 @@ export async function authorize(params: AuthorizeParams): Promise<AuthorizeResul
   
   // Open browser using child_process (cross-platform)
   try {
-    const { exec } = require('child_process');
+    
     const platform = process.platform;
     
     let cmd: string;

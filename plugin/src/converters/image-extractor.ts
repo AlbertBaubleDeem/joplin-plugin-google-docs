@@ -224,7 +224,7 @@ export function calculateImagePositions<P extends AdjustableRange, T extends Adj
   
   // Step 5: Adjust style ranges based on placeholder removals
   // Use the sorted placeholderInfos for efficient adjustment
-  function adjustPosition(pos: number): number {
+  const adjustPosition = (pos: number): number => {
     let adjustment = 0;
     for (const info of placeholderInfos) {
       if (info.originalPosition < pos) {
@@ -234,7 +234,7 @@ export function calculateImagePositions<P extends AdjustableRange, T extends Adj
       }
     }
     return pos - adjustment;
-  }
+  };
   
   const adjustedParaRanges = paraRanges.map(range => ({
     ...range,

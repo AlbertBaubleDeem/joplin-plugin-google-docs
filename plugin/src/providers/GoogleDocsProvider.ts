@@ -23,8 +23,12 @@ import {
   pluginId,
 } from '../mapping';
 
-/** App property key for notebook ID */
 const appPropertyNotebookId = 'joplinNotebookId';
+
+type UpdateContent = {
+  plainText: string;
+  requests?: any[];
+};
 
 /**
  * Google Docs implementation of the document provider interface.
@@ -142,7 +146,7 @@ export class GoogleDocsProvider implements IDocumentProvider {
 
   async updateDocument(
     docId: string,
-    content: { plainText: string; requests?: any[] },
+    content: UpdateContent,
     revisionId?: string
   ): Promise<UpdateDocumentResult> {
     // Get current document state

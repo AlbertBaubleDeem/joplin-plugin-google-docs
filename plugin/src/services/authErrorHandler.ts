@@ -84,7 +84,7 @@ export async function handleAuthError(
   const dialogId = 'gdocs-auth-error-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
   
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <div style="text-align: center; margin-bottom: 16px;">
@@ -102,7 +102,7 @@ export async function handleAuthError(
     </div>
   `;
   
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'reauth', title: '🔐 Re-authorize' },
     { id: 'cancel', title: 'Cancel' },

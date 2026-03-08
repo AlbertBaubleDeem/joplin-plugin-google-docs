@@ -41,7 +41,7 @@ export async function showInfoDialog(j: any, options: InfoDialogOptions): Promis
     ? `<p style="line-height: 1.6; color: var(--joplin-color); font-size: 13px;">${escapeHtml(details)}</p>`
     : '';
 
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <div style="text-align: center; margin-bottom: 16px;">
@@ -57,7 +57,7 @@ export async function showInfoDialog(j: any, options: InfoDialogOptions): Promis
     </div>
   `;
 
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'ok', title: buttonLabel },
   ]);
@@ -107,7 +107,7 @@ export async function showConfirmDialog(j: any, options: ConfirmDialogOptions): 
     ? `<p style="line-height: 1.6; color: var(--joplin-color); font-size: 13px;">${escapeHtml(details)}</p>`
     : '';
 
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <div style="text-align: center; margin-bottom: 16px;">
@@ -123,7 +123,7 @@ export async function showConfirmDialog(j: any, options: ConfirmDialogOptions): 
     </div>
   `;
 
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'cancel', title: cancelLabel },
     { id: 'ok', title: confirmLabel },
@@ -140,7 +140,7 @@ export async function showAuthInstructionsDialog(j: any): Promise<boolean> {
   const dialogId = 'gdocs-auth-instructions-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
 
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <div style="text-align: center; margin-bottom: 16px;">
@@ -165,7 +165,7 @@ export async function showAuthInstructionsDialog(j: any): Promise<boolean> {
     </div>
   `;
 
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'cancel', title: 'Cancel' },
     { id: 'ok', title: 'Continue →' },

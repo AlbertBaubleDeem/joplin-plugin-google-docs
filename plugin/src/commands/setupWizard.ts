@@ -161,7 +161,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
 async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
   const dialogId = 'gdocs-wizard-welcome-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
@@ -188,7 +188,7 @@ async function showWelcomeStep(j: any): Promise<'next' | 'cancel'> {
     </div>
   `;
   
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'cancel', title: 'Cancel' },
     { id: 'next', title: 'Next →' },
@@ -208,7 +208,7 @@ async function showCredentialsStep(
 ): Promise<{ clientId: string; clientSecret: string } | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-credentials-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
@@ -253,7 +253,7 @@ async function showCredentialsStep(
     </div>
   `;
   
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'back', title: '← Back' },
     { id: 'cancel', title: 'Cancel' },
@@ -287,7 +287,7 @@ async function showAuthorizeStep(
 ): Promise<'success' | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-authorize-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
@@ -309,7 +309,7 @@ async function showAuthorizeStep(
     </div>
   `;
   
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'back', title: '← Back' },
     { id: 'cancel', title: 'Cancel' },
@@ -339,7 +339,7 @@ async function showAuthorizeStep(
 async function showSyncFolderStep(j: any, installDir: string, dataDir: string): Promise<{ folderId: string } | 'back' | 'cancel'> {
   const dialogId = 'gdocs-wizard-folder-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <h2 style="margin: 0 0 16px 0; color: var(--joplin-color); text-align: center;">
@@ -388,7 +388,7 @@ async function showSyncFolderStep(j: any, installDir: string, dataDir: string): 
     </div>
   `;
   
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [
     { id: 'back', title: '← Back' },
     { id: 'cancel', title: 'Cancel' },
@@ -424,7 +424,7 @@ async function showSyncFolderStep(j: any, installDir: string, dataDir: string): 
 async function showCompleteStep(j: any): Promise<void> {
   const dialogId = 'gdocs-wizard-complete-' + Date.now();
   const dialog = await j.views.dialogs.create(dialogId);
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box; text-align: center;">
       <div style="font-size: 48px; margin-bottom: 16px;">🗹</div>
@@ -460,7 +460,7 @@ async function showCompleteStep(j: any): Promise<void> {
     </div>
   `;
   
-  await j.views.dialogs.setHtml(dialog, html);
+  await j.views.dialogs.setHtml(dialog, dialogHtml);
   await j.views.dialogs.setButtons(dialog, [{ id: 'ok', title: 'Get Started' }]);
   
   await j.views.dialogs.open(dialog);

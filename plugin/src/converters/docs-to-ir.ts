@@ -335,10 +335,10 @@ const elementToSpan = (
   if (!textRun?.content) return null;
   
   // Normalize content
-  let text = textRun.content
-    .replace(/\n+$/g, '')           // Remove trailing newlines
-    .replace(/\u000B/g, '\n')       // Replace vertical tab with newline
-    .replace(/[\uE000-\uF8FF]/g, ''); // Remove Private Use Area chars
+  const text = textRun.content
+    .replace(/\n+$/g, '')
+    .replace(/\u000B/g, '\n')
+    .replace(/[\uE000-\uF8FF]/g, '');
   
   if (text.length === 0) return null;
   

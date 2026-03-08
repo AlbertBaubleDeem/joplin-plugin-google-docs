@@ -22,6 +22,8 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
+import https from 'https';
+import { URL } from 'url';
 import { ImageRange } from './converters/types';
 
 /**
@@ -324,8 +326,7 @@ export async function uploadImageToGCS(
   const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(bucketName)}/o?uploadType=media&name=${encodeURIComponent(objectName)}`;
   
   // Use Node's https module directly
-  const https = require('https');
-  const { URL } = require('url');
+  
   
   const uploadResult = await new Promise<{ size: number }>((resolve, reject) => {
     const url = new URL(uploadUrl);

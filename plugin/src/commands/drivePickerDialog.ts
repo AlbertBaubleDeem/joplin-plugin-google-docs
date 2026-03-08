@@ -72,7 +72,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     // - No dynamic content updates without closing/reopening
     // - Enter key submits the first button in the list
     // - Limited CSS support, but CSS variables from theme are available
-    const html = `
+    const dialogHtml = `
       <div style="padding:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
         <div style="padding:20px; width:90%; max-width:900px;">
           <form name="f" style="margin:0;" onsubmit="return false;">
@@ -126,7 +126,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
       </div>
     `;
     
-    await j.views.dialogs.setHtml(d, html);
+    await j.views.dialogs.setHtml(d, dialogHtml);
     
     // Joplin limitation: buttons are static, can't be dynamically updated
     // Use 'ok' as the search button ID to make it a submit button that Enter will trigger

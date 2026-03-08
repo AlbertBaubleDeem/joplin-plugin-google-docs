@@ -120,10 +120,9 @@ export class GoogleDocsConverter implements IFormatConverter {
     const markdown = irToMarkdown(ir, converterConfig);
 
     // Extract title if present (first paragraph of type 'title')
-    let extractedTitle: string | undefined;
-    if (ir.length > 0 && ir[0].type === 'title') {
-      extractedTitle = ir[0].spans.map(s => s.text).join('');
-    }
+    const extractedTitle = (ir.length > 0 && ir[0].type === 'title')
+      ? ir[0].spans.map(s => s.text).join('')
+      : undefined;
 
     return {
       markdown,

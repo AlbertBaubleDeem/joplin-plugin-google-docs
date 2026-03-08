@@ -11,6 +11,14 @@ import { pushNote } from './commands/pushNote';
 import { pullNote } from './commands/pullNote';
 import { SyncContext } from './services/syncContext';
 
+type SyncDecision = {
+  noteId: string;
+  fileId: string;
+  tabMatched: boolean;
+  action: 'pull' | 'push';
+  reason: string;
+};
+
 const loadJson = <T>(p: string, fallback: T): T => {
   try {
     return JSON.parse(fs.readFileSync(p, 'utf8')) as T;
@@ -181,11 +189,11 @@ export class MinimalPoller {
    * @param j - Joplin API
    * @returns Decisions for each item that needs syncing
    */
-  async decideOnce(j: any): Promise<{ matched: number; decisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }> }> {
+  async decideOnce(j: any): Promise<{ matched: number; decisions: SyncDecision[] }> {
     const base = await this.processOnce();
     const { drive, docs } = this;
     const mapping = this.getMapping();
-    const allDecisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push' | 'skip'; reason: string }> = [];
+    const allDecisions: Array<Omit<SyncDecision, 'action'> & { action: 'pull' | 'push' | 'skip' }> = [];
     
     // Process Drive change items in parallel for performance
     if (base.items.length > 0) {
@@ -258,7 +266,7 @@ export class MinimalPoller {
     }
     
     // Filter out 'skip' actions - only return items that need syncing
-    const decisions = allDecisions.filter(d => d.action !== 'skip') as Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }>;
+    const decisions = allDecisions.filter(d => d.action !== 'skip') as SyncDecision[];
     
     return { matched: decisions.length, decisions };
   }
@@ -270,7 +278,7 @@ export class MinimalPoller {
    * @param j - Joplin API
    * @returns Sync results with decision details
    */
-  async syncOnce(j: any): Promise<{ matched: number; updated: number; decisions: Array<{ noteId: string; fileId: string; tabMatched: boolean; action: 'pull' | 'push'; reason: string }> }> {
+  async syncOnce(j: any): Promise<{ matched: number; updated: number; decisions: SyncDecision[] }> {
     const { matched, decisions } = await this.decideOnce(j);
     let updated = 0;
     const { installDir, dataDir } = this.ctx;

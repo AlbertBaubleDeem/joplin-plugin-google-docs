@@ -27,7 +27,7 @@ export async function bindCurrentNote(params: BindParams): Promise<boolean> {
 
   const dId = 'gdocsBindDialog-' + Date.now();
   const d = await j.views.dialogs.create(dId);
-  const html = `
+  const dialogHtml = `
     <style>#joplin-plugin-content { width: max-content; }</style>
     <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
       <div style="text-align: center; margin-bottom: 16px;">
@@ -65,7 +65,7 @@ export async function bindCurrentNote(params: BindParams): Promise<boolean> {
       </p>
     </div>
   `;
-  await j.views.dialogs.setHtml(d, html);
+  await j.views.dialogs.setHtml(d, dialogHtml);
   await j.views.dialogs.setButtons(d, [
     { id: 'cancel', title: 'Cancel' },
     { id: 'ok', title: 'Bind' },
