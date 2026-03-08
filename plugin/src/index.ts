@@ -64,17 +64,7 @@ async function pollOnce(): Promise<void> {
     const { installDir, dataDir } = await getDirs();
     const ctx = await createSyncContext(installDir, dataDir, joplin);
     const poller = new MinimalPoller(ctx);
-    
-    const maybe = await poller.initIfNeeded();
-    if (maybe === null) {
-      await showInfoDialog(joplin, { 
-        title: 'Sync Initialized', 
-        message: 'Drive sync has been initialized. Run Poll Once again to sync.', 
-        icon: '🔄' 
-      });
-      return;
-    }
-    
+    await poller.initIfNeeded();
     const syncRes = await poller.syncOnce(joplin);
     await showSuccessDialog(joplin, 'Poll Complete', `Matched: ${syncRes.matched} | Updated: ${syncRes.updated}`);
   } catch (e) {

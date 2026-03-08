@@ -31,12 +31,22 @@ export async function startBackgroundPoller(config: PollerConfig): Promise<void>
   try {
     const settings = await getSettings(j);
 
-    // Check if auto sync is enabled and tokens exist
-    if (!settings.autoSyncEnabled) return;
-    if (!hasValidTokens(installDir)) return;
+    if (!settings.autoSyncEnabled) {
+      console.warn('[gdocs-poller] Auto sync is disabled in settings');
+      return;
+    }
+    if (!hasValidTokens(installDir)) {
+      console.warn('[gdocs-poller] No valid tokens at', installDir);
+      return;
+    }
 
     const intervalMs = (settings.pollIntervalMinutes || 5) * 60 * 1000;
-    if (intervalMs <= 0) return;
+    if (intervalMs <= 0) {
+      console.warn('[gdocs-poller] Poll interval is 0, skipping');
+      return;
+    }
+
+    console.warn('[gdocs-poller] Starting with interval', settings.pollIntervalMinutes, 'min');
 
     // Run poller function
     async function runPoller() {
@@ -89,6 +99,7 @@ export async function registerPollerSettingsListener(config: PollerConfig): Prom
         relevantKeys.some(rk => k.endsWith(rk))
       );
       if (changed) {
+        console.warn('[gdocs-poller] Settings changed, restarting');
         await restartBackgroundPoller(config);
       }
     });

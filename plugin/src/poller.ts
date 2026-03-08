@@ -178,8 +178,12 @@ export class MinimalPoller {
       for (const result of revisionResults) {
         if (result.status !== 'fulfilled') continue;
         const { noteId, fileId, binding, rev } = result.value;
-        if (rev && binding.lastKnownRevisionId && rev !== binding.lastKnownRevisionId) {
-          console.info('[plugin-poller] Would update note (rev mismatch)', noteId, 'file', fileId);
+        if (!rev) continue;
+        // Revision mismatch: doc changed since last sync
+        const revisionChanged = binding.lastKnownRevisionId && rev !== binding.lastKnownRevisionId;
+        // No baseline: note is bound but was never synced -- pull to establish baseline
+        const noBaseline = !binding.lastKnownRevisionId;
+        if (revisionChanged || noBaseline) {
           matched += 1;
           items.push({ noteId, fileId, tabMatched: !!binding.tabId });
         }
