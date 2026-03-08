@@ -35,7 +35,6 @@ export type PushResult = {
   noteId: string;
   fileId: string;
   newRevisionId: string;
-  debugLog?: string[];
 };
 
 // Typed subset of a Google Docs API document response
@@ -65,44 +64,6 @@ type DocState = {
   endIndex: number;
   revisionId: string;
 };
-
-import { appendFileSync, writeFileSync, readFileSync } from 'fs';
-import { join } from 'path';
-
-// Debug log collector - writes to file for persistence
-let debugLogPath: string | null = null;
-const debugLines: string[] = [];
-
-const debugLog = (message: string) => {
-  debugLines.push(message);
-  // Also write to file for persistence
-  if (debugLogPath) {
-    appendFileSync(debugLogPath, message + '\n');
-  }
-};
-
-const clearDebugLog = () => {
-  debugLines.length = 0;
-};
-
-const setDebugLogPath = (dataDir: string) => {
-  debugLogPath = join(dataDir, 'push-debug.log');
-  // Clear the file
-  writeFileSync(debugLogPath, '=== Push Debug Log ===\n');
-};
-
-export function getDebugLog(): string[] {
-  return [...debugLines];
-}
-
-export function getDebugLogFromFile(dataDir: string): string {
-  const logPath = join(dataDir, 'push-debug.log');
-  try {
-    return readFileSync(logPath, 'utf8');
-  } catch {
-    return 'No debug log file';
-  }
-}
 
 /**
  * Fetches a Google Doc and extracts its body content, preferring the first tab
@@ -139,66 +100,44 @@ async function executePush(
   j: any,
   noteId: string,
   fileId: string,
-  dataDir: string
-): Promise<{ newRevisionId: string; debugLog: string[] }> {
+  _dataDir: string
+): Promise<{ newRevisionId: string }> {
   const { google, auth, docs, installDir } = ctx;
-
-  setDebugLogPath(dataDir);
-  clearDebugLog();
-  
-  debugLog(`=== executePush for note ${noteId} ===`);
 
   const note = await getNoteById(j, noteId, ['id', 'title', 'body']);
   const mdRaw: string = String(note.body ?? '');
-  debugLog(`Note body length: ${mdRaw.length}`);
-  
+
   // Check if GCS is configured BEFORE conversion
   // This determines whether we process images or preserve them as markdown
   const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
   const processImages_flag = !!gcsBucketName;
-  debugLog(`GCS bucket: ${gcsBucketName || 'NOT CONFIGURED'}, processImages: ${processImages_flag}`);
-  
+
   // When GCS is not configured, images are preserved as markdown text (no placeholder extraction)
   const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { 
     installDir, 
     processImages: processImages_flag 
   });
 
-  debugLog(`Converted: ${mdRaw.length} chars -> ${plain.length} plain, ${imageRanges.length} images, ${listRanges.length} list ranges`);
-  if (imageRanges.length > 0) {
-    debugLog(`Image resources: ${JSON.stringify(imageRanges.map(r => r.resourceId))}`);
-  }
-  
   let uploadedObjects: GCSUploadResult[] = [];
   let resourceIdToUrl = new Map<string, string>();
-  
+
   if (imageRanges.length > 0 && gcsBucketName) {
-    debugLog(`Processing ${imageRanges.length} images via GCS`);
-    
-    debugLog(`Initializing GCS storage client...`);
     const storage = google.storage({ version: 'v1', auth });
-    debugLog(`GCS storage client created`);
-    
     try {
-      debugLog(`Calling processImages...`);
-      const imageResult = await processImages(j, auth, storage, gcsBucketName, imageRanges, debugLog);
+      const imageResult = await processImages(j, auth, storage, gcsBucketName, imageRanges);
       uploadedObjects = imageResult.uploadedObjects;
       resourceIdToUrl = imageResult.resourceIdToUrl;
-      debugLog(`processImages returned: ${uploadedObjects.length} uploaded`);
-    } catch (imageError: unknown) {
-      debugLog(`processImages ERROR: ${imageError instanceof Error ? imageError.message : imageError}`);
+    } catch {
+      // Image processing failed; continue without images
     }
   } else if (imageRanges.length > 0) {
-    debugLog(`Images found but GCS not configured`);
     console.warn(`[pushNote] Note has ${imageRanges.length} images but GCS is not configured. Images will not be synced.`);
-  } else {
-    debugLog(`No images in note`);
   }
 
   // Fetch current doc state to get revision ID and content end position
   const { endIndex, revisionId } = await getDocState(docs, fileId);
-  
-  const requests: any[] = [];
+
+  const requests: unknown[] = [];
   // Avoid empty delete range (start==end). For empty docs endIndex is often 2.
   if (endIndex > 2) {
     requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
@@ -229,20 +168,16 @@ async function executePush(
   if (endIndexAfterInsert === 1 && afterState.content.length > 0) {
     endIndexAfterInsert = afterState.endIndex;
   }
-  
+
   // Clear all existing bullet formatting before applying new styles
   // This prevents list formatting from persisting across pushes
   if (endIndexAfterInsert > 2) {
-    debugLog(`Clearing bullet formatting from 1 to ${endIndexAfterInsert}`);
     await docs.documents.batchUpdate({
       documentId: fileId,
       requestBody: {
         requests: [{
           deleteParagraphBullets: {
-            range: {
-              startIndex: 1,
-              endIndex: endIndexAfterInsert,
-            },
+            range: { startIndex: 1, endIndex: endIndexAfterInsert },
           },
         }],
       },
@@ -250,77 +185,41 @@ async function executePush(
   }
 
   // Apply paragraph and inline styles (WITHOUT list bullets)
-  // buildDocsStyleUpdateRequests handles monoFont internally via config
   const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
   if (styleReqs.length) {
     await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: styleReqs } });
   }
 
-  // Apply list bullets in a SEPARATE batchUpdate call
-  // This avoids potential interactions between paragraph styles and bullet formatting
-  // Note: List ranges are already adjusted in ir-to-docs.ts to account for tab consumption
-  // by the createParagraphBullets API (tabs used for nesting are consumed by the API)
+  // Apply list bullets in a SEPARATE batchUpdate call to avoid interactions
+  // with paragraph styles. List ranges are already adjusted for tab consumption.
   if (listRanges.length > 0) {
     const bulletReqs = buildListBulletRequests(listRanges);
     if (bulletReqs.length) {
-      debugLog(`Applying ${bulletReqs.length} list bullet requests separately`);
       await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: bulletReqs } });
     }
   }
 
-  // Re-fetch to get end index for image insertion positioning
+  // Insert images if GCS upload succeeded
   const afterTextState = await getDocState(docs, fileId, false);
-  debugLog(`Document endIndex after text insertion: ${afterTextState.endIndex}`);
-  debugLog(`Image insertion check: uploadedObjects.length=${uploadedObjects.length}, resourceIdToUrl.size=${resourceIdToUrl.size}`);
   if (uploadedObjects.length > 0 && resourceIdToUrl.size > 0) {
-    debugLog(`Inserting ${uploadedObjects.length} images into doc`);
-    
-    // textOffset of 0 because we're inserting at positions within the already-inserted text
-    debugLog(`Building image insert requests...`);
-    debugLog(`Plain text length: ${plain.length}, Doc endIndex: ${afterTextState.endIndex}`);
-    debugLog(`First image position: ${imageRanges[0]?.position}, Last image position: ${imageRanges[imageRanges.length-1]?.position}`);
-    const { requests: imageRequests } = buildImageInsertRequests(imageRanges, resourceIdToUrl, 0, debugLog);
-    debugLog(`Built ${imageRequests.length} image requests`);
-    
+    const { requests: imageRequests } = buildImageInsertRequests(imageRanges, resourceIdToUrl, 0);
+
     if (imageRequests.length > 0) {
-      debugLog(`Executing image batchUpdate with ${imageRequests.length} requests...`);
-      // Log first request as sample
-      if (imageRequests[0]) {
-        debugLog(`Sample request: ${JSON.stringify(imageRequests[0])}`);
-      }
-      
-      try {
-        const imgResult = await docs.documents.batchUpdate({
-          documentId: fileId,
-          requestBody: { requests: imageRequests },
-        });
-        debugLog(`Image batchUpdate succeeded`);
-        const replies = (imgResult.data as { replies?: unknown[] })?.replies || [];
-        debugLog(`Got ${replies.length} replies from batchUpdate`);
-        if (replies[0]) {
-          debugLog(`First reply: ${JSON.stringify(replies[0])}`);
-        }
-      } catch (imgError: unknown) {
-        const errMsg = imgError instanceof Error ? imgError.message : String(imgError);
-        debugLog(`Image batchUpdate ERROR: ${errMsg}`);
-        throw imgError;
-      }
-      
+      await docs.documents.batchUpdate({
+        documentId: fileId,
+        requestBody: { requests: imageRequests },
+      });
+
       afterState = await getDocState(docs, fileId, false);
       newRevisionId = afterState.revisionId;
-    } else {
-      debugLog(`No image requests to execute`);
     }
-    
-    // Clean up GCS public access - this is critical for security
-    debugLog(`Cleaning up GCS public access for ${uploadedObjects.length} objects`);
+
+    // Clean up GCS public access
     const storage = google.storage({ version: 'v1', auth });
     await cleanupImageAccess(storage, gcsBucketName!, uploadedObjects);
-    debugLog(`GCS cleanup complete`);
   }
 
-  debugLog(`Push complete, newRevisionId: ${newRevisionId}`);
-  return { newRevisionId, debugLog: getDebugLog() };
+  return { newRevisionId };
 }
 
 /**
@@ -366,15 +265,8 @@ async function updateMappingAfterPush(
  */
 export async function pushNote(params: Params): Promise<PushResult> {
   const { j, installDir, dataDir } = params;
-  
-  setDebugLogPath(dataDir);
-  clearDebugLog();
-  debugLog('pushNote started');
-  
-  debugLog('Creating sync context...');
-  const ctx = params.ctx || await createSyncContext(installDir, dataDir, j);
-  debugLog('Sync context created');
 
+  const ctx = params.ctx || await createSyncContext(installDir, dataDir, j);
   const noteId = params.noteId || await getSelectedNoteId(j);
 
   const binding = getBinding(dataDir, noteId);
@@ -382,10 +274,9 @@ export async function pushNote(params: Params): Promise<PushResult> {
   const fileId = binding.fileId;
 
   const result = await executePush(ctx, j, noteId, fileId, dataDir);
-
   await updateMappingAfterPush(ctx, noteId, fileId, result.newRevisionId);
 
-  return { noteId, fileId, newRevisionId: result.newRevisionId, debugLog: result.debugLog };
+  return { noteId, fileId, newRevisionId: result.newRevisionId };
 }
 
 /**
