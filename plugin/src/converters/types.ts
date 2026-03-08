@@ -78,6 +78,8 @@ export type Paragraph = {
   listType?: 'ordered' | 'unordered';
   /** Nesting level for lists (0 = top level, 1 = first indent, etc.) */
   nestingLevel?: number;
+  /** Set during pull: true if an empty paragraph preceded this one in the source document */
+  hasPrecedingSeparator?: boolean;
 };
 
 /**

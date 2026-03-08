@@ -53,7 +53,8 @@ function isSelfDelimitingParagraph(para: Paragraph): boolean {
  * - Self-delimiting → Self-delimiting: single newline
  * - Self-delimiting → Text: double newline
  * - Text → Self-delimiting: single newline
- * - Text → Text: double newline
+ * - Text → Text with hasPrecedingSeparator: double newline (was a blank line in source)
+ * - Text → Text without hasPrecedingSeparator: single newline (adjacent in source)
  * - Text → List: double newline (list needs blank line before)
  * - List → Text: double newline
  */
@@ -74,6 +75,16 @@ function getDelimiter(prev: Paragraph, current: Paragraph): string {
   }
   if (prevIsSelfDelim) {
     return '\n\n';
+  }
+  
+  // Paragraph → Paragraph (both plain text, no headings): use hasPrecedingSeparator.
+  // When pulling from Google Docs, consecutive paragraphs without an empty
+  // paragraph between them were originally on adjacent lines in Markdown.
+  // Headings always need a blank line before/after for proper Markdown rendering.
+  const prevIsPlainText = prev.type === 'paragraph';
+  const currIsPlainText = current.type === 'paragraph';
+  if (prevIsPlainText && currIsPlainText && !current.hasPrecedingSeparator) {
+    return '\n';
   }
   
   // Everything else: double newline

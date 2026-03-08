@@ -382,7 +382,15 @@ function elementToSpan(
   if (textStyle.bold) span.bold = true;
   if (textStyle.italic) span.italic = true;
   if (isMonospace) span.code = true;
-  if (textStyle.link?.url) span.link = textStyle.link.url;
+  if (textStyle.link?.url) {
+    let url = textStyle.link.url;
+    // Google Docs prepends http:// to URLs without a recognized scheme.
+    // Strip it to restore Joplin internal links (:/resourceId).
+    if (url.startsWith('http://:/')) {
+      url = url.slice(7); // Remove "http://" prefix, keep ":/..."
+    }
+    span.link = url;
+  }
   
   return span;
 }
@@ -472,7 +480,7 @@ function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
     const last = result[result.length - 1];
     
     // Merge if both are code blocks and no separator flag
-    if (last?.type === 'code_block' && para.type === 'code_block' && !(para as any)._hasPrecedingSeparator) {
+    if (last?.type === 'code_block' && para.type === 'code_block' && !para.hasPrecedingSeparator) {
       last.spans.push({ text: '\n' }, ...para.spans);
       debug('docs-to-ir', 'merged-code-block', para.spans[0]?.text?.substring(0, 20));
     } else {
@@ -603,7 +611,7 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
     
     // Flag paragraphs that had an empty paragraph before them
     if (lastWasEmpty) {
-      (result as any)._hasPrecedingSeparator = true;
+      result.hasPrecedingSeparator = true;
       lastWasEmpty = false;
     }
     

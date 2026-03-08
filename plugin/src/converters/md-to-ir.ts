@@ -325,14 +325,9 @@ function inlineTokenToSpans(token: Token): StyledSpan[] {
       return [{ text: (token as Tokens.Codespan).text, code: true }];
     
     case 'link':
-      // Link: text with URL
+      // Link: text with URL (including Joplin internal :/ links)
       const linkToken = token as Tokens.Link;
       const linkChildren = inlineTokensToSpans(linkToken.tokens || []);
-      // Skip internal Joplin resource links
-      if (linkToken.href.startsWith(':/')) {
-        // Return as plain text for now (preserve image syntax handled separately)
-        return [{ text: linkToken.text || linkToken.href }];
-      }
       return linkChildren.map(span => ({ ...span, link: linkToken.href }));
     
     case 'image':
