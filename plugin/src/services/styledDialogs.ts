@@ -175,7 +175,7 @@ export async function showAuthInstructionsDialog(j: any): Promise<boolean> {
   return result?.id === 'ok';
 }
 
-function escapeHtml(str: string): string {
+const escapeHtml = (str: string): string => {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -183,5 +183,5 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
     .replace(/\n/g, '<br/>');
-}
+};
 

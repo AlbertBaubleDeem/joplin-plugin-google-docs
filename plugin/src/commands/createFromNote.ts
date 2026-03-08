@@ -5,9 +5,9 @@
  * Creates the doc, binds it, and immediately pushes the note content.
  */
 
-import { bindNote, PLUGIN_ID } from '../mapping';
-import { createSyncContext } from '../services/SyncContext';
-import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
+import { bindNote, pluginId } from '../mapping';
+import { createSyncContext } from '../services/syncContext';
+import { getSelectedNoteId, getNoteById } from '../services/noteOperations';
 import { pushNoteById } from './pushNote';
 
 /**
@@ -47,32 +47,24 @@ type CreateResult = {
 export async function createFromNote(params: Params): Promise<CreateResult> {
   const { j, installDir, dataDir } = params;
 
-  // Create sync context with authenticated API clients
   const ctx = await createSyncContext(installDir, dataDir, j);
-
-  // Ensure sync folder exists via provider
   const syncFolderId = await ctx.provider.ensureSyncFolder();
 
-  // Determine the note ID using NoteOperations
   const noteId = params.noteId || await getSelectedNoteId(j);
 
-  // Get note title
   const note = await getNoteById(j, noteId, ['id', 'title']);
   const baseName: string = (note.title && String(note.title).trim()) || 'Untitled Note';
 
-  // Create Google Doc under the sync folder via provider
   const createResult = await ctx.provider.createDocument(baseName, syncFolderId);
   const newFileId = createResult.metadata.id;
 
-  // Set appProperties and bind locally via provider
   await ctx.provider.setDocumentBinding(newFileId, {
     noteId,
-    pluginId: PLUGIN_ID,
+    pluginId: pluginId,
     version: '1',
   });
   bindNote(dataDir, noteId, { fileId: newFileId });
 
-  // Push note content to the newly created doc
   await pushNoteById({ j, installDir, dataDir, noteId });
 
   return { noteId, newFileId, syncFolderId };

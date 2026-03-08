@@ -5,8 +5,8 @@
  * Opens browser for consent, receives callback, and saves tokens.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { resolve } from 'path';
 import { getSettings } from '../services/settings';
 import {
   generateAuthUrl,
@@ -26,13 +26,13 @@ import {
  * Load credentials from .env file in install directory.
  * This is the existing credential source used before the settings GUI.
  */
-function loadEnvCredentials(installDir: string): { clientId: string; clientSecret: string } {
-  const envPath = path.resolve(installDir, '.env');
+const loadEnvCredentials = (installDir: string): { clientId: string; clientSecret: string } => {
+  const envPath = resolve(installDir, '.env');
   let clientId = '';
   let clientSecret = '';
   
-  if (fs.existsSync(envPath)) {
-    const env = fs.readFileSync(envPath, 'utf8');
+  if (existsSync(envPath)) {
+    const env = readFileSync(envPath, 'utf8');
     for (const line of env.split('\n')) {
       const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
       if (m) {
@@ -43,7 +43,7 @@ function loadEnvCredentials(installDir: string): { clientId: string; clientSecre
   }
   
   return { clientId, clientSecret };
-}
+};
 
 export interface AuthorizeParams {
   j: any;
@@ -199,16 +199,13 @@ export async function reauthorize(params: AuthorizeParams): Promise<AuthorizeRes
  * Save credentials to .env file for the auth service
  */
 async function saveCredentialsToEnv(installDir: string, config: OAuthConfig): Promise<void> {
-  const fs = require('fs');
-  const path = require('path');
-  
-  const envPath = path.resolve(installDir, '.env');
+  const envPath = resolve(installDir, '.env');
   const envContent = [
     `GOOGLE_CLIENT_ID=${config.clientId}`,
     `GOOGLE_CLIENT_SECRET=${config.clientSecret}`,
     `GOOGLE_REDIRECT_URI=http://localhost:${config.port || 3000}/oauth2callback`,
   ].join('\n');
   
-  fs.writeFileSync(envPath, envContent);
+  writeFileSync(envPath, envContent);
 }
 

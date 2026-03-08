@@ -5,9 +5,9 @@ import { MenuItemLocation } from 'api/types';
 import { createSyncStatusRenderer } from './noteListRenderer';
 
 // Static imports - replacing dynamic resolveMod() calls
-import { createSyncContext } from './services/SyncContext';
+import { createSyncContext } from './services/syncContext';
 import { MinimalPoller } from './poller';
-import * as dialogs from './services/styledDialogs';
+import { showErrorDialog, showInfoDialog, showSuccessDialog, showWarningDialog } from './services/styledDialogs';
 import { isAuthError, handleAuthError } from './services/authErrorHandler';
 import { batchPush, batchPull, batchUnbind } from './services/batchOperations';
 import { createFromNote } from './commands/createFromNote';
@@ -56,11 +56,9 @@ async function handleError(e: unknown, errorPrefix: string): Promise<void> {
     
     console.error('[gdocs]', errorPrefix + ':', msg);
     // Show error dialog so user sees the failure
-    await dialogs.showErrorDialog(joplin, errorPrefix, msg);
+    await showErrorDialog(joplin, errorPrefix, msg);
   }
 }
-
-// === COMMAND FUNCTIONS ===
 
 async function pollOnce(): Promise<void> {
   try {
@@ -70,7 +68,7 @@ async function pollOnce(): Promise<void> {
     
     const maybe = await poller.initIfNeeded();
     if (maybe === null) {
-      await dialogs.showInfoDialog(joplin, { 
+      await showInfoDialog(joplin, { 
         title: 'Sync Initialized', 
         message: 'Drive sync has been initialized. Run Poll Once again to sync.', 
         icon: '🔄' 
@@ -79,7 +77,7 @@ async function pollOnce(): Promise<void> {
     }
     
     const syncRes = await poller.syncOnce(joplin);
-    await dialogs.showSuccessDialog(joplin, 'Poll Complete', `Matched: ${syncRes.matched} | Updated: ${syncRes.updated}`);
+    await showSuccessDialog(joplin, 'Poll Complete', `Matched: ${syncRes.matched} | Updated: ${syncRes.updated}`);
   } catch (e) {
     await handleError(e, 'Poll error');
   }
@@ -89,7 +87,7 @@ async function createFromNoteCmd(): Promise<void> {
   try {
     const { installDir, dataDir } = await getDirs();
     await createFromNote({ j: joplin, installDir, dataDir });
-    await dialogs.showSuccessDialog(joplin, 'Document Created', 'Google Doc created and linked to this note.');
+    await showSuccessDialog(joplin, 'Document Created', 'Google Doc created and linked to this note.');
   } catch (e) {
     await handleError(e, 'Create-from-note error');
   }
@@ -145,7 +143,7 @@ async function openPickerCmd(): Promise<void> {
     const { installDir, dataDir } = await getDirs();
     const res = await openDrivePickerDialog({ j: joplin, installDir, dataDir });
     if (res.created > 0) {
-      await dialogs.showSuccessDialog(joplin, 'Import Complete', `Imported ${res.created} document${res.created > 1 ? 's' : ''}.`);
+      await showSuccessDialog(joplin, 'Import Complete', `Imported ${res.created} document${res.created > 1 ? 's' : ''}.`);
     }
   } catch (e) {
     await handleError(e, 'Picker error');
@@ -158,13 +156,13 @@ async function exportNotebookCmd(): Promise<void> {
     
     const folder = await joplin.workspace.selectedFolder();
     if (!folder) {
-      await dialogs.showWarningDialog(joplin, 'No Selection', 'Please select a notebook first.');
+      await showWarningDialog(joplin, 'No Selection', 'Please select a notebook first.');
       return;
     }
     
     const res = await exportNotebook({ j: joplin, installDir, dataDir, folderId: folder.id });
     if (res) {
-      await dialogs.showSuccessDialog(joplin, 'Export Complete', `Exported ${res.noteCount} note${res.noteCount > 1 ? 's' : ''} to Google Drive.`);
+      await showSuccessDialog(joplin, 'Export Complete', `Exported ${res.noteCount} note${res.noteCount > 1 ? 's' : ''} to Google Drive.`);
     }
   } catch (e) {
     await handleError(e, 'Export notebook error');
@@ -185,16 +183,14 @@ async function authorizeCmd(): Promise<void> {
     const { installDir, dataDir } = await getDirs();
     const result = await authorize({ j: joplin, installDir, dataDir });
     if (result.success) {
-      await dialogs.showSuccessDialog(joplin, 'Authorization Complete', result.message);
+      await showSuccessDialog(joplin, 'Authorization Complete', result.message);
     } else {
-      await dialogs.showErrorDialog(joplin, 'Authorization Failed', result.message);
+      await showErrorDialog(joplin, 'Authorization Failed', result.message);
     }
   } catch (e) {
     await handleError(e, 'Authorization error');
   }
 }
-
-// === PLUGIN REGISTRATION ===
 
 joplin.plugins.register({
   onStart: async function() {
@@ -210,14 +206,14 @@ joplin.plugins.register({
     }
     
     // Register note list renderer for sync status icons (only if enabled in settings)
-    const RENDERER_ID = 'io.github.albertbaubledeem.joplin.google-docs:gdocs-sync-renderer';
+    const rendererId = 'io.github.albertbaubledeem.joplin.google-docs:gdocs-sync-renderer';
     try {
       const enableSyncIcons = await joplin.settings.value('enableSyncIcons');
       
       if (enableSyncIcons) {
         const renderer = createSyncStatusRenderer(dataDir);
         await joplin.views.noteList.registerRenderer(renderer);
-        console.log('[gdocs] Registered note list renderer:', RENDERER_ID);
+        console.log('[gdocs] Registered note list renderer:', rendererId);
       } else {
         console.log('[gdocs] Sync icons disabled - skipping renderer registration');
       }

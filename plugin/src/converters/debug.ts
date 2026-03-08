@@ -5,8 +5,8 @@
  * Logs to both console and file for easier debugging in Joplin.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import { appendFileSync } from 'fs';
+import { join } from 'path';
 import { IRDocument, Paragraph, StyledSpan, ConversionDebug } from './types';
 
 /** Whether debug mode is enabled */
@@ -19,7 +19,7 @@ let debugLogPath: string | null = null;
 const debugLog: ConversionDebug[] = [];
 
 /** Maximum log entries to keep */
-const MAX_LOG_ENTRIES = 100;
+const maxLogEntries = 100;
 
 /**
  * Enable or disable debug mode.
@@ -32,11 +32,11 @@ export function setDebugMode(enabled: boolean, logDir?: string): void {
   console.log('[converter] setDebugMode called:', enabled, 'logDir:', logDir);
   
   if (enabled && logDir) {
-    debugLogPath = path.join(logDir, 'converter-debug.log');
+    debugLogPath = join(logDir, 'converter-debug.log');
     // Clear previous log or append
     try {
       const header = `\n=== Converter Debug Session ===\nStarted: ${new Date().toISOString()}\nDebug enabled: ${enabled}\n\n`;
-      fs.appendFileSync(debugLogPath, header);
+      appendFileSync(debugLogPath, header);
       console.log('[converter] Debug log path set to:', debugLogPath);
     } catch (e) {
       console.error('[converter] Failed to write debug log file:', e);
@@ -81,7 +81,7 @@ export function debug(step: string, input: string, output: any): void {
   debugLog.push(entry);
   
   // Trim if too long
-  if (debugLog.length > MAX_LOG_ENTRIES) {
+  if (debugLog.length > maxLogEntries) {
     debugLog.shift();
   }
   
@@ -94,7 +94,7 @@ export function debug(step: string, input: string, output: any): void {
       const timestamp = new Date().toISOString();
       const serialized = JSON.stringify(safeSerialize(output), null, 2);
       const logEntry = `[${timestamp}] ${step} | ${input}:\n${serialized}\n\n`;
-      fs.appendFileSync(debugLogPath, logEntry);
+      appendFileSync(debugLogPath, logEntry);
     } catch (e) {
       // Ignore file write errors
     }
@@ -119,7 +119,7 @@ export function clearDebugLog(): void {
  * Safely serialize an object for logging.
  * Handles circular references and large objects.
  */
-function safeSerialize(obj: any, maxDepth = 5): any {
+const safeSerialize = (obj: any, maxDepth = 5): any => {
   if (maxDepth <= 0) return '[max depth]';
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
@@ -136,7 +136,7 @@ function safeSerialize(obj: any, maxDepth = 5): any {
     result[key] = safeSerialize(obj[key], maxDepth - 1);
   }
   return result;
-}
+};
 
 /**
  * Format an IR document as a readable string for debugging.

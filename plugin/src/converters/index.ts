@@ -126,17 +126,17 @@ export function convertMarkdownToPlainAndStyles(
 }
 
 // Image placeholder constant - must match image-extractor.ts
-const IMAGE_PLACEHOLDER = '\u200B\u2063IMG\u2063\u200B';
+const imagePlaceholder = '\u200B\u2063IMG\u2063\u200B';
 
 /**
  * Adjust list ranges after image placeholder removal.
  * Similar logic to calculateImagePositions but for list ranges.
  */
-function adjustListRangesForImages(
+const adjustListRangesForImages = (
   listRanges: ListRange[],
   plainWithPlaceholders: string,
   images: { placeholderIndex: number }[]
-): ListRange[] {
+): ListRange[] => {
   if (listRanges.length === 0 || images.length === 0) {
     return listRanges;
   }
@@ -144,7 +144,7 @@ function adjustListRangesForImages(
   // Calculate total placeholder lengths removed before each position
   const placeholderPositions: { position: number; length: number }[] = [];
   for (const img of images) {
-    const placeholder = `${IMAGE_PLACEHOLDER}${img.placeholderIndex}${IMAGE_PLACEHOLDER}`;
+    const placeholder = `${imagePlaceholder}${img.placeholderIndex}${imagePlaceholder}`;
     const pos = plainWithPlaceholders.indexOf(placeholder);
     if (pos !== -1) {
       placeholderPositions.push({ position: pos, length: placeholder.length });
@@ -172,7 +172,7 @@ function adjustListRangesForImages(
       totalTabs: range.totalTabs,
     };
   });
-}
+};
 
 /**
  * Build Docs API style update requests.

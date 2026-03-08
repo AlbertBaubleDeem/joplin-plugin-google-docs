@@ -3,7 +3,7 @@
  * Uses showMessageBox intentionally - distinct style for debug functionality.
  */
 
-import * as fs from 'fs';
+import { existsSync } from 'fs';
 import { setDebugMode, getDebugLogPath } from '../converters';
 
 type JoplinApi = any;
@@ -36,7 +36,7 @@ export async function toggleConverterDebug(params: ToggleDebugParams): Promise<v
   console.log('[gdocs] Debug enabled:', converterDebugEnabled, 'logPath:', logPath);
 
   if (converterDebugEnabled && logPath) {
-    const exists = fs.existsSync(logPath);
+    const exists = existsSync(logPath);
     await j.views.dialogs.showMessageBox(
       `Converter debug ENABLED.\n\nLog file: ${logPath}\nFile exists: ${exists}\nDataDir: ${dataDir}`
     );

@@ -3,7 +3,7 @@
  * Handles interval-based polling with configurable settings.
  */
 
-import { createSyncContext } from './SyncContext';
+import { createSyncContext } from './syncContext';
 import { MinimalPoller } from '../poller';
 import { getSettings } from './settings';
 import { hasValidTokens } from './oauthServer';

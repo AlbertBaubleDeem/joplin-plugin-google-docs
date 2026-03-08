@@ -9,15 +9,15 @@ import { marked, Token, Tokens } from 'marked';
 import { IRDocument, Paragraph, StyledSpan, ConverterConfig, CalloutType } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
-import { CALLOUT_TYPE_NAMES } from './callout-config';
+import { calloutTypeNames } from './callout-config';
 
 /**
  * Regex pattern to match callout blocks.
  * Matches: <note>content</note>, <info>content</info>, etc.
  * Content can span multiple lines.
  */
-const CALLOUT_BLOCK_REGEX = new RegExp(
-  `<(${CALLOUT_TYPE_NAMES.join('|')})>([\\s\\S]*?)<\\/\\1>`,
+const calloutBlockRegex = new RegExp(
+  `<(${calloutTypeNames.join('|')})>([\\s\\S]*?)<\\/\\1>`,
   'gi'
 );
 
@@ -25,7 +25,7 @@ const CALLOUT_BLOCK_REGEX = new RegExp(
  * Placeholder prefix used to mark callout positions in the markdown.
  * Uses double percent signs which have no special meaning in Markdown or HTML.
  */
-const CALLOUT_PLACEHOLDER_PREFIX = '%%CALLOUT:';
+const calloutPlaceholderPrefix = '%%CALLOUT:';
 
 /**
  * Extracted callout with its content and type.
@@ -40,12 +40,12 @@ type ExtractedCallout = {
  * Extract callout blocks from markdown and replace with placeholders.
  * Returns the modified markdown and the extracted callouts.
  */
-function extractCallouts(markdown: string): { markdown: string; callouts: ExtractedCallout[] } {
+const extractCallouts = (markdown: string): { markdown: string; callouts: ExtractedCallout[] } => {
   const callouts: ExtractedCallout[] = [];
   let calloutIndex = 0;
   
-  const modifiedMarkdown = markdown.replace(CALLOUT_BLOCK_REGEX, (match, type, content) => {
-    const placeholderId = `${CALLOUT_PLACEHOLDER_PREFIX}${calloutIndex}%%`;
+  const modifiedMarkdown = markdown.replace(calloutBlockRegex, (match, type, content) => {
+    const placeholderId = `${calloutPlaceholderPrefix}${calloutIndex}%%`;
     callouts.push({
       type: type.toLowerCase() as CalloutType,
       content: content.trim(),
@@ -58,7 +58,7 @@ function extractCallouts(markdown: string): { markdown: string; callouts: Extrac
   });
   
   return { markdown: modifiedMarkdown, callouts };
-}
+};
 
 /**
  * Convert Markdown string to IR document.
@@ -108,11 +108,11 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
  * Convert a single marked token to one or more Paragraphs.
  * Lists can produce multiple paragraphs.
  */
-function tokenToParagraphs(
+const tokenToParagraphs = (
   token: Token, 
   config: ConverterConfig,
   calloutMap: Map<string, ExtractedCallout>
-): Paragraph[] {
+): Paragraph[] => {
   switch (token.type) {
     case 'heading':
       return [{
@@ -128,7 +128,7 @@ function tokenToParagraphs(
       const rawText = paraToken.raw?.trim() || '';
       
       // Check if it's a callout placeholder
-      if (rawText.startsWith(CALLOUT_PLACEHOLDER_PREFIX) && rawText.endsWith('%%')) {
+      if (rawText.startsWith(calloutPlaceholderPrefix) && rawText.endsWith('%%')) {
         const callout = calloutMap.get(rawText);
         if (callout) {
           debug('md-to-ir', 'converting-callout-placeholder', { type: callout.type });
@@ -202,7 +202,7 @@ function tokenToParagraphs(
       debug('md-to-ir', 'unknown-token', { type: token.type, token });
       return [];
   }
-}
+};
 
 /**
  * Process a list token into multiple list_item paragraphs.
@@ -212,11 +212,11 @@ function tokenToParagraphs(
  * @param config - Converter configuration
  * @param nestingLevel - Current nesting depth (0 = top level)
  */
-function processListToken(
+const processListToken = (
   listToken: Tokens.List, 
   config: ConverterConfig,
   nestingLevel: number = 0
-): Paragraph[] {
+): Paragraph[] => {
   const listParagraphs: Paragraph[] = [];
   const listType: 'ordered' | 'unordered' = listToken.ordered ? 'ordered' : 'unordered';
   
@@ -285,12 +285,12 @@ function processListToken(
   }
   
   return listParagraphs;
-}
+};
 
 /**
  * Convert marked inline tokens to styled spans.
  */
-function inlineTokensToSpans(tokens: Token[]): StyledSpan[] {
+const inlineTokensToSpans = (tokens: Token[]): StyledSpan[] => {
   const spans: StyledSpan[] = [];
   
   for (const token of tokens) {
@@ -300,12 +300,12 @@ function inlineTokensToSpans(tokens: Token[]): StyledSpan[] {
   
   // Merge adjacent spans with same styles
   return mergeSpans(spans);
-}
+};
 
 /**
  * Convert a single inline token to one or more spans.
  */
-function inlineTokenToSpans(token: Token): StyledSpan[] {
+const inlineTokenToSpans = (token: Token): StyledSpan[] => {
   switch (token.type) {
     case 'text':
       return [{ text: (token as Tokens.Text).text }];
@@ -352,12 +352,12 @@ function inlineTokenToSpans(token: Token): StyledSpan[] {
       debug('md-to-ir', 'unknown-inline-token', { type: token.type, token });
       return [];
   }
-}
+};
 
 /**
  * Merge adjacent spans with identical styles.
  */
-function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
+const mergeSpans = (spans: StyledSpan[]): StyledSpan[] => {
   if (spans.length === 0) return [];
   
   const merged: StyledSpan[] = [{ ...spans[0] }];
@@ -381,12 +381,12 @@ function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
   }
   
   return merged;
-}
+};
 
 /**
  * Apply title/subtitle rules based on config.
  */
-function applyTitleRules(paragraphs: Paragraph[], config: ConverterConfig): void {
+const applyTitleRules = (paragraphs: Paragraph[], config: ConverterConfig): void => {
   if (paragraphs.length === 0) return;
   
   // First paragraph becomes title if configured
@@ -424,5 +424,5 @@ function applyTitleRules(paragraphs: Paragraph[], config: ConverterConfig): void
       }
     }
   }
-}
+};
 

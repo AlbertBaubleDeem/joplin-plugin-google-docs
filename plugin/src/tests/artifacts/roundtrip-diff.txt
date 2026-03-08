@@ -1,0 +1,336 @@
+Similarity: 19.5% (36/185 lines match)
+
+  1| # Comprehensive Roundtrip Test
+  2| 
+  3| This document tests all major formatting features supported by the Joplin Google Docs plugin.
+  4| 
+  5| ## Basic Formatting
+  6| 
+  7| This paragraph contains **bold text**, *italic text*, and ***bold italic*** together.
+  8| Here's some `inline code` in a sentence.
+  9| 
+  10| ## Links
+  11| 
+  12| ### External Links
+- 13| Visit [Google](https://www.google.com) for search.
++ 13| 
+- 14| Check out [GitHub](https://github.com) for code.
++ 14| Visit [Google](https://www.google.com) for search.
+- 15| 
++ 15| Check out [GitHub](https://github.com) for code.
+- 16| ### Joplin Internal Links
++ 16| 
+- 17| Reference to [another note](:/abc123def456) in Joplin.
++ 17| ### Joplin Internal Links
+- 18| Link to [resource file](:/image789resource) attachment.
++ 18| 
+- 19| 
++ 19| Reference to [another note](:/abc123def456) in Joplin.
+- 20| ## Images
++ 20| Link to [resource file](:/image789resource) attachment.
+  21| 
+- 22| ### External Image
++ 22| ## Images
+- 23| ![External cat](https://placekitten.com/200/200)
++ 23| 
+- 24| 
++ 24| ### External Image
+- 25| ### Joplin Internal Image
++ 25| 
+- 26| ![My screenshot](:/88a9c8449f054280ad2c402f451b5373)
++ 26| ![External cat](https://placekitten.com/200/200)
+  27| 
+- 28| ## Unordered Lists
++ 28| ### Joplin Internal Image
+- 29| 
++ 29| ![My screenshot](:/88a9c8449f054280ad2c402f451b5373)
+- 30| ### Simple Unordered List
++ 30| 
+- 31| - First item
++ 31| ## Unordered Lists
+- 32| - Second item
++ 32| 
+- 33| - Third item with longer text that might wrap
++ 33| ### Simple Unordered List
+  34| 
+- 35| ### Nested Unordered List
++ 35| - First item
+- 36| - Level 1 item A
++ 36| - Second item
+- 37| 	- Level 2 item A1
++ 37| - Third item with longer text that might wrap
+- 38| 	- Level 2 item A2
++ 38| 
+- 39| 		- Level 3 deeply nested
++ 39| ### Nested Unordered List
+- 40| 	- Level 2 item A3
++ 40| 
+- 41| - Level 1 item B
++ 41| - Level 1 item A
+- 42| - Level 1 item C
++ 42|     - Level 2 item A1
+- 43| 	- Level 2 under C
++ 43|     - Level 2 item A2
+- 44| 
++ 44|         - Level 3 deeply nested
+- 45| ## Ordered Lists
++ 45|     - Level 2 item A3
+- 46| 
++ 46| - Level 1 item B
+- 47| ### Simple Ordered List
++ 47| - Level 1 item C
+- 48| 1. First numbered item
++ 48|     - Level 2 under C
+- 49| 2. Second numbered item
++ 49| 
+- 50| 3. Third numbered item
++ 50| ## Ordered Lists
+  51| 
+- 52| ### Nested Ordered List
++ 52| ### Simple Ordered List
+- 53| 1. Main point one
++ 53| 
+- 54| 	1. Sub-point 1.1
++ 54| 1. First numbered item
+- 55| 	2. Sub-point 1.2
++ 55| 2. Second numbered item
+- 56| 		1. Deep sub-point 1.2.1
++ 56| 3. Third numbered item
+- 57| 2. Main point two
++ 57| 
+- 58| 3. Main point three
++ 58| ### Nested Ordered List
+- 59| 	1. Sub-point 3.1
++ 59| 
+- 60| 
++ 60| 1. Main point one
+- 61| ## Mixed Content in Lists
++ 61|     1. Sub-point 1.1
+- 62| 
++ 62|     2. Sub-point 1.2
+- 63| ### List with Image (same bullet)
++ 63|         1. Deep sub-point 1.2.1
+- 64| - Item with text followed by image
++ 64| 2. Main point two
+- 65| ![inline image](:/imageInListItem123)
++ 65| 3. Main point three
+- 66| - Next regular item
++ 66|     1. Sub-point 3.1
+- 67| - Another item
++ 67| 
+- 68| 
++ 68| ## Mixed Content in Lists
+- 69| ### List Followed by Different Content
++ 69| 
+- 70| 
++ 70| ### List with Image (same bullet)
+- 71| - List item one
++ 71| 
+- 72| - List item two
++ 72| - Item with text followed by image
+- 73| - List item three
++ 73| ![inline image](:/imageInListItem123)
+- 74| 
++ 74| - Next regular item
+- 75| ## Heading After List
++ 75| - Another item
+  76| 
+- 77| This paragraph comes right after the list above.
++ 77| ### List Followed by Different Content
+  78| 
+- 79| ### Another Heading
++ 79| - List item one
+- 80| 
++ 80| - List item two
+- 81| More content here.
++ 81| - List item three
+  82| 
+- 83| ## Code Blocks
++ 83| ## Heading After List
+  84| 
+- 85| ### Code without language
++ 85| This paragraph comes right after the list above.
+- 86| ```
++ 86| 
+- 87| function hello() {
++ 87| ### Another Heading
+- 88|     console.log("Hello world");
++ 88| 
+- 89| }
++ 89| More content here.
+- 90| ```
++ 90| 
+- 91| 
++ 91| ## Code Blocks
+- 92| ### JavaScript Code
++ 92| 
+- 93| ```javascript
++ 93| ### Code without language
+- 94| const greeting = (name) => {
++ 94| ```
+- 95|     return `Hello, ${name}!`;
++ 95| function hello() {
+- 96| };
++ 96|     console.log("Hello world");
+- 97| console.log(greeting("World"));
++ 97| }
+  98| ```
+  99| 
+- 100| ### Python Code
++ 100| ### JavaScript Code
+- 101| ```python
++ 101| ```javascript
+- 102| def fibonacci(n):
++ 102| const greeting = (name) => {
+- 103|     if n <= 1:
++ 103|     return `Hello, ${name}!`;
+- 104|         return n
++ 104| };
+- 105|     return fibonacci(n-1) + fibonacci(n-2)
++ 105| console.log(greeting("World"));
+- 106| 
++ 106| ```
+- 107| print(fibonacci(10))
++ 107| 
+- 108| ```
++ 108| ### Python Code
+- 109| 
++ 109| ```python
+- 110| ### Consecutive Code Blocks
++ 110| def fibonacci(n):
+- 111| ```javascript
++ 111|     if n <= 1:
+- 112| const a = 1;
++ 112|         return n
+- 113| ```
++ 113|     return fibonacci(n-1) + fibonacci(n-2)
+- 114| ```python
++ 114| 
+- 115| b = 2
++ 115| print(fibonacci(10))
+  116| ```
+- 117| ```
++ 117| 
+- 118| plain code block
++ 118| ### Consecutive Code Blocks
+- 119| ```
++ 119| ```javascript
+- 120| 
++ 120| const a = 1;
+- 121| ### Consecutive Plain Code Blocks
++ 121| ```
+- 122| ```
++ 122| ```python
+- 123| first plain block
++ 123| b = 2
+  124| ```
+  125| ```
+- 126| second plain block
++ 126| plain code block
+  127| ```
+- 128| ```
++ 128| 
+- 129| third plain block
++ 129| ### Consecutive Plain Code Blocks
+  130| ```
+- 131| 
++ 131| first plain block
+- 132| ## Callout Blocks
++ 132| ```
+- 133| 
++ 133| ```
+- 134| <note>
++ 134| second plain block
+- 135| This is a note callout with important information for the reader.
++ 135| ```
+- 136| </note>
++ 136| ```
+- 137| 
++ 137| third plain block
+- 138| <info>
++ 138| ```
+- 139| This is an info callout providing additional context.
++ 139| 
+- 140| </info>
++ 140| ## Callout Blocks
+- 141| 
++ 141| <note>This is a note callout with important information for the reader.</note>
+- 142| <warning>
++ 142| <info>This is an info callout providing additional context.</info>
+- 143| This is a warning callout about potential issues.
++ 143| <warning>This is a warning callout about potential issues.</warning>
+- 144| </warning>
++ 144| <tip>This is a tip callout with helpful suggestions.</tip>
+- 145| 
++ 145| <question>This is a question callout for the reader to consider.</question>
+- 146| <tip>
++ 146| <jarvis>This is a jarvis callout with AI-generated content.</jarvis>
+- 147| This is a tip callout with helpful suggestions.
++ 147| 
+- 148| </tip>
++ 148| ## Complex Mixed Section
+  149| 
+- 150| <question>
++ 150| Here's a paragraph before a complex nested structure.
+- 151| This is a question callout for the reader to consider.
++ 151| 
+- 152| </question>
++ 152| 1. First ordered item with **bold** and *italic*
+- 153| 
++ 153| - Nested unordered under ordered
+- 154| <jarvis>
++ 154| - Another nested item
+- 155| This is a jarvis callout with AI-generated content.
++ 155| 1. Second ordered item
+- 156| </jarvis>
++ 156|     1. Nested ordered 2.1
+- 157| 
++ 157|     2. Nested ordered 2.2
+- 158| ## Complex Mixed Section
++ 158| 
+- 159| 
++ 159| Then some regular text between lists.
+- 160| Here's a paragraph before a complex nested structure.
++ 160| 
+- 161| 
++ 161| - Unordered after ordered
+- 162| 1. First ordered item with **bold** and *italic*
++ 162| - With [a link](https://example.com) inside
+- 163| 	- Nested unordered under ordered
++ 163| - And some `inline code` too
+- 164| 	- Another nested item
++ 164| 
+- 165| 2. Second ordered item
++ 165| ## Final Section
+- 166| 	1. Nested ordered 2.1
++ 166| 
+- 167| 	2. Nested ordered 2.2
++ 167| ### H3 Heading
+  168| 
+- 169| Then some regular text between lists.
++ 169| #### H4 Heading
+  170| 
+- 171| - Unordered after ordered
++ 171| ##### H5 Heading
+- 172| - With [a link](https://example.com) inside
++ 172| 
+- 173| - And some `inline code` too
++ 173| ###### H6 Heading
+  174| 
+- 175| ## Final Section
++ 175| This is the final paragraph of the test document.
+  176| 
+- 177| ### H3 Heading
++ 177| 
+  178| 
+- 179| #### H4 Heading
++ 179| 
+  180| 
+- 181| ##### H5 Heading
++ 181| 
+  182| 
+- 183| ###### H6 Heading
++ 183| 
+  184| 
+- 185| This is the final paragraph of the test document.
++ 185| 

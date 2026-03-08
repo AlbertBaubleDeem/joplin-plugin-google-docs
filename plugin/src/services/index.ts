@@ -5,7 +5,7 @@
  */
 
 export * from './auth';
-export * from './SyncContext';
-export * from './SyncFolderManager';
-export * from './NoteOperations';
+export * from './syncContext';
+export * from './syncFolderManager';
+export * from './noteOperations';
 

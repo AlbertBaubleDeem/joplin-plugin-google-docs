@@ -3,7 +3,7 @@
  * Consolidates the batch processing logic from index.js.
  */
 
-import { getEffectiveNoteIds } from './NoteOperations';
+import { getEffectiveNoteIds } from './noteOperations';
 import { getBinding } from '../mapping';
 import { unbindNoteDoer } from '../commands/unbindNote';
 import { pushNote } from '../commands/pushNote';

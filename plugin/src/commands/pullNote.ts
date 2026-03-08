@@ -7,8 +7,8 @@
 import { loadMapping, saveMapping } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
 import { convertDocumentToMarkdown } from '../converters';
-import { createSyncContext, SyncContext } from '../services/SyncContext';
-import { getSelectedNoteId, updateNoteBody } from '../services/NoteOperations';
+import { createSyncContext, SyncContext } from '../services/syncContext';
+import { getSelectedNoteId, updateNoteBody } from '../services/noteOperations';
 
 /**
  * Parameters for pullNote command
@@ -51,43 +51,35 @@ export type PullResult = {
 export async function pullNote(params: Params): Promise<PullResult> {
   const { j, installDir, dataDir } = params;
 
-  // Create sync context with authenticated API clients (or use provided one)
   const ctx = params.ctx || await createSyncContext(installDir, dataDir, j);
 
-  // Determine the note ID using NoteOperations
   const noteId = params.noteId || await getSelectedNoteId(j);
 
-  // Get binding and validate
   const mapping = loadMapping(dataDir);
   const binding = mapping.notes[noteId];
   if (!binding?.fileId) {
     throw new Error('Note is not bound to a Google Doc.');
   }
 
-  // Fetch and convert document content
-  // Note: Using buildConversionDocFromTabs for tab selection support
-  // The provider's getDocument() could be extended to support tabs in future
+  // Using buildConversionDocFromTabs for tab selection support;
+  // provider's getDocument() could be extended to support tabs in future
   const sel = await buildConversionDocFromTabs(ctx.docs, binding.fileId, { tabId: binding.tabId });
   const convertDoc = (sel as any).convertDoc;
   const tabCount = (sel as any).tabCount || 0;
   const usedTabTitle = (sel as any).usedTabTitle || '';
 
-  // Convert to Markdown
   const md = convertDocumentToMarkdown(convertDoc, { installDir });
 
-  // Compare with existing content to avoid unnecessary writes
   const existingNote = await j.data.get(['notes', noteId], { fields: ['body'] });
   const existingBody = (existingNote?.body || '').trim();
   const newBody = md.trim();
   
   let updated = false;
   if (existingBody !== newBody) {
-    // Update note body using NoteOperations
     await updateNoteBody(j, noteId, md);
     updated = true;
   }
 
-  // Update mapping with new revision info via provider
   const newRevisionId = await ctx.provider.getRevisionId(binding.fileId);
 
   if (newRevisionId) {

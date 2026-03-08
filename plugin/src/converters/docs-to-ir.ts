@@ -14,11 +14,7 @@
 import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig, CalloutType } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
-import { CALLOUT_DEFINITIONS, matchCalloutByColor } from './callout-config';
-
-// =============================================================================
-// TYPES
-// =============================================================================
+import { calloutDefinitions, matchCalloutByColor } from './callout-config';
 
 /** Google Docs text style structure (subset). */
 type DocsTextStyle = {
@@ -58,15 +54,11 @@ type ListDetectionResult = {
   isListItem: false;
 };
 
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
 /**
  * Ordered list glyph types in Google Docs.
  * Includes all known variations (with/without underscores).
  */
-const ORDERED_GLYPH_TYPES = [
+const orderedGlyphTypes = [
   'DECIMAL',
   'ALPHA',
   'ROMAN',
@@ -79,37 +71,29 @@ const ORDERED_GLYPH_TYPES = [
   'LOWER_ROMAN',
 ];
 
-// =============================================================================
-// UTILITY HELPERS
-// =============================================================================
-
 /** Escape special regex characters in a string. */
-function escapeRegex(str: string): string {
+const escapeRegex = (str: string): string => {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+};
 
 /**
  * Extract Joplin resource ID from a GCS URL.
  * Expected format: https://storage.googleapis.com/{bucket}/joplin_img_{resourceId}_{timestamp}.{ext}
  */
-function extractResourceIdFromUrl(url: string): string | null {
+const extractResourceIdFromUrl = (url: string): string | null => {
   if (!url) return null;
   const match = url.match(/joplin_img_([a-fA-F0-9]{32})_\d+\.\w+/);
   return match?.[1] || null;
-}
-
-// =============================================================================
-// LIST DETECTION
-// =============================================================================
+};
 
 /**
  * Check if a glyph format indicates an ordered list.
  * glyphFormat like "%0." or "%1." indicates numbered list.
  */
-function isOrderedGlyphFormat(glyphFormat?: string): boolean {
+const isOrderedGlyphFormat = (glyphFormat?: string): boolean => {
   if (!glyphFormat) return false;
   return /%\d/.test(glyphFormat);
-}
+};
 
 /**
  * Detect if a paragraph is a list item and determine its type.
@@ -118,7 +102,7 @@ function isOrderedGlyphFormat(glyphFormat?: string): boolean {
  * @param lists - The lists dictionary from the document
  * @returns Detection result with list type and nesting level if it's a list item
  */
-function detectListItem(bullet: any, lists: ListsDict): ListDetectionResult {
+const detectListItem = (bullet: any, lists: ListsDict): ListDetectionResult => {
   if (!bullet) {
     return { isListItem: false };
   }
@@ -139,7 +123,7 @@ function detectListItem(bullet: any, lists: ListsDict): ListDetectionResult {
   // 3. glyphSymbol (like "-" or "•") indicates unordered
   let isOrdered = false;
   if (glyphType) {
-    isOrdered = ORDERED_GLYPH_TYPES.includes(glyphType);
+    isOrdered = orderedGlyphTypes.includes(glyphType);
   } else if (isOrderedGlyphFormat(glyphFormat)) {
     isOrdered = true;
   }
@@ -154,11 +138,7 @@ function detectListItem(bullet: any, lists: ListsDict): ListDetectionResult {
   });
   
   return { isListItem: true, listType, nestingLevel };
-}
-
-// =============================================================================
-// STYLE DETECTION
-// =============================================================================
+};
 
 /**
  * Check if a paragraph has all text runs in monospace font.
@@ -169,7 +149,7 @@ function detectListItem(bullet: any, lists: ListsDict): ListDetectionResult {
  * - All visible runs must have explicit monospace font
  * - Google Docs uses Private Use Area characters (U+E000-U+F8FF) as internal markers
  */
-function isAllMonospaceParagraph(elements: any[]): boolean {
+const isAllMonospaceParagraph = (elements: any[]): boolean => {
   // Get text runs with VISIBLE content only
   const textRuns = elements.filter(e => {
     const content = e.textRun?.content;
@@ -194,15 +174,15 @@ function isAllMonospaceParagraph(elements: any[]): boolean {
   }
   
   return hasMonospace;
-}
+};
 
 /**
  * Determine paragraph type from Google Docs paragraph style.
  */
-function determineParagraphType(
+const determineParagraphType = (
   style: DocsParagraphStyle,
   config: ConverterConfig
-): { type: ParagraphType; level?: number; calloutType?: CalloutType } {
+): { type: ParagraphType; level?: number; calloutType?: CalloutType } => {
   const namedStyle = style.namedStyleType;
   
   // Check for callout box (colored border matching a callout definition)
@@ -242,13 +222,13 @@ function determineParagraphType(
     default:
       return { type: 'paragraph' };
   }
-}
+};
 
 /**
  * Check if a Google Docs paragraph element is a language label.
  * Language labels are small grey right-aligned text following a code block.
  */
-function isLanguageLabelElement(element: any): { isLabel: boolean; language?: string } {
+const isLanguageLabelElement = (element: any): { isLabel: boolean; language?: string } => {
   const p = element?.paragraph;
   if (!p?.elements?.length) return { isLabel: false };
   
@@ -294,20 +274,16 @@ function isLanguageLabelElement(element: any): { isLabel: boolean; language?: st
   
   debug('docs-to-ir', 'detected-lang-label', { content, fontSize, fgColor });
   return { isLabel: true, language: content };
-}
-
-// =============================================================================
-// ELEMENT CONVERSION
-// =============================================================================
+};
 
 /**
  * Convert an inline object element (image) to a StyledSpan.
  * Extracts the Joplin resource ID from the image's sourceUri.
  */
-function inlineObjectToSpan(
+const inlineObjectToSpan = (
   inlineObjectElement: any,
   inlineObjects: InlineObjectsDict
-): StyledSpan | null {
+): StyledSpan | null => {
   const objectId = inlineObjectElement?.inlineObjectId;
   if (!objectId) return null;
   
@@ -338,17 +314,17 @@ function inlineObjectToSpan(
   const altText = title ? `GDoc image: ${title}` : 'GDoc image';
   debug('docs-to-ir', 'image-external', { objectId, altText, sourceUri: sourceUri?.substring(0, 40) });
   return { text: `[${altText}]` };
-}
+};
 
 /**
  * Convert a Google Docs element (textRun or inlineObjectElement) to a StyledSpan.
  */
-function elementToSpan(
+const elementToSpan = (
   element: any,
   isCodeBlock: boolean,
   config: ConverterConfig,
   inlineObjects: InlineObjectsDict
-): StyledSpan | null {
+): StyledSpan | null => {
   // Handle inline image objects
   if (element?.inlineObjectElement) {
     return inlineObjectToSpan(element.inlineObjectElement, inlineObjects);
@@ -393,21 +369,17 @@ function elementToSpan(
   }
   
   return span;
-}
-
-// =============================================================================
-// PARAGRAPH CONVERSION
-// =============================================================================
+};
 
 /**
  * Convert a document element to a Paragraph.
  */
-function elementToParagraph(
+const elementToParagraph = (
   element: any,
   config: ConverterConfig,
   inlineObjects: InlineObjectsDict,
   lists: ListsDict
-): Paragraph | null {
+): Paragraph | null => {
   const p = element?.paragraph;
   if (!p?.elements?.length) return null;
   
@@ -438,7 +410,7 @@ function elementToParagraph(
   
   // Handle callout: strip the symbol prefix from the content
   if (type === 'callout' && calloutType && spans.length > 0) {
-    const calloutDef = CALLOUT_DEFINITIONS.find(d => d.type === calloutType);
+    const calloutDef = calloutDefinitions.find(d => d.type === calloutType);
     if (calloutDef) {
       const symbolPattern = new RegExp(`^${escapeRegex(calloutDef.symbol)}\\s*`);
       if (symbolPattern.test(spans[0].text)) {
@@ -461,17 +433,13 @@ function elementToParagraph(
   }
   
   return { type, level, spans };
-}
-
-// =============================================================================
-// POST-PROCESSING
-// =============================================================================
+};
 
 /**
  * Merge consecutive code_block paragraphs into a single code block.
  * Only merges blocks that are DIRECTLY adjacent (no separator between them).
  */
-function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
+const mergeConsecutiveCodeBlocks = (paragraphs: Paragraph[]): Paragraph[] => {
   if (paragraphs.length === 0) return [];
   
   const result: Paragraph[] = [];
@@ -489,12 +457,12 @@ function mergeConsecutiveCodeBlocks(paragraphs: Paragraph[]): Paragraph[] {
   }
   
   return result;
-}
+};
 
 /**
  * Extract language labels from paragraphs and associate with preceding code blocks.
  */
-function extractLanguageLabels(paragraphs: Paragraph[], rawBody: any[]): Paragraph[] {
+const extractLanguageLabels = (paragraphs: Paragraph[], rawBody: any[]): Paragraph[] => {
   if (paragraphs.length === 0) return [];
   
   // Build map of paragraph text to raw element for style checking
@@ -541,19 +509,19 @@ function extractLanguageLabels(paragraphs: Paragraph[], rawBody: any[]): Paragra
   }
   
   return result;
-}
+};
 
 /**
  * Merge adjacent spans with identical styles.
  */
-export function mergeAdjacentSpans(doc: IRDocument): IRDocument {
+export const mergeAdjacentSpans = (doc: IRDocument): IRDocument => {
   return doc.map(para => ({
     ...para,
     spans: mergeSpans(para.spans),
   }));
-}
+};
 
-function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
+const mergeSpans = (spans: StyledSpan[]): StyledSpan[] => {
   if (spans.length === 0) return [];
   
   const merged: StyledSpan[] = [{ ...spans[0] }];
@@ -575,11 +543,7 @@ function mergeSpans(spans: StyledSpan[]): StyledSpan[] {
   }
   
   return merged;
-}
-
-// =============================================================================
-// MAIN ENTRY POINT
-// =============================================================================
+};
 
 /**
  * Convert a Google Docs document to IR.

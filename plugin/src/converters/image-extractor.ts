@@ -9,7 +9,7 @@
 import { ImageRange } from './types';
 
 // Unique placeholder that won't appear in normal text
-const IMAGE_PLACEHOLDER = '\u200B\u2063IMG\u2063\u200B';
+const imagePlaceholder = '\u200B\u2063IMG\u2063\u200B';
 
 /**
  * Result of extracting images from markdown
@@ -43,29 +43,29 @@ export interface ExtractedImage {
  * Regex to match Joplin image syntax: ![alt](:/resourceId) or ![alt](:/resourceId "title")
  * Handles escaped brackets in alt text like ![\[Windows\]](:/id)
  */
-const JOPLIN_IMAGE_REGEX = /!\[((?:[^\]\\]|\\.)*)\]\(:\/([a-fA-F0-9]+)(?:\s+"([^"]*)")?\)/g;
+const joplinImageRegex = /!\[((?:[^\]\\]|\\.)*)\]\(:\/([a-fA-F0-9]+)(?:\s+"([^"]*)")?\)/g;
 
 /**
  * Regex to match HTML img tags with Joplin resource: <img src=":/resourceId" .../>
  * Captures: resourceId from src attribute
  * Also extracts alt attribute if present
  */
-const HTML_IMG_REGEX = /<img\s+[^>]*src=["']:\/([a-fA-F0-9]+)["'][^>]*\/?>/gi;
+const htmlImgRegex = /<img\s+[^>]*src=["']:\/([a-fA-F0-9]+)["'][^>]*\/?>/gi;
 
 /**
  * Regex to match linked HTML img tags: [<img src=":/resourceId" .../>](url)
  * This pattern must be matched BEFORE standalone HTML img to avoid partial matches
  * Captures: 1=img tag, 2=resourceId, 3=link URL
  */
-const LINKED_HTML_IMG_REGEX = /\[(<img\s+[^>]*src=["']:\/([a-fA-F0-9]+)["'][^>]*\/?>)\]\(([^)]+)\)/gi;
+const linkedHtmlImgRegex = /\[(<img\s+[^>]*src=["']:\/([a-fA-F0-9]+)["'][^>]*\/?>)\]\(([^)]+)\)/gi;
 
 /**
  * Extract alt attribute from HTML img tag
  */
-function extractAltFromHtmlImg(imgTag: string): string | undefined {
+const extractAltFromHtmlImg = (imgTag: string): string | undefined => {
   const altMatch = imgTag.match(/\salt=["']([^"']*)["']/i);
   return altMatch ? altMatch[1] : undefined;
-}
+};
 
 /**
  * Extract images from markdown and replace with placeholders
@@ -84,7 +84,7 @@ export function extractImages(markdown: string): ImageExtractionResult {
   
   // First pass: Replace markdown images ![alt](:/resourceId)
   let markdownWithPlaceholders = markdown.replace(
-    JOPLIN_IMAGE_REGEX,
+    joplinImageRegex,
     (match, altText, resourceId, title) => {
       images.push({
         resourceId,
@@ -93,14 +93,14 @@ export function extractImages(markdown: string): ImageExtractionResult {
         originalMarkdown: match,
         placeholderIndex: placeholderIndex++,
       });
-      return `${IMAGE_PLACEHOLDER}${placeholderIndex - 1}${IMAGE_PLACEHOLDER}`;
+      return `${imagePlaceholder}${placeholderIndex - 1}${imagePlaceholder}`;
     }
   );
   
   // Second pass: Replace LINKED HTML img tags [<img.../>](url) BEFORE standalone
   // This prevents the standalone regex from partially matching
   markdownWithPlaceholders = markdownWithPlaceholders.replace(
-    LINKED_HTML_IMG_REGEX,
+    linkedHtmlImgRegex,
     (match, imgTag, resourceId, linkUrl) => {
       const altText = extractAltFromHtmlImg(imgTag);
       images.push({
@@ -111,13 +111,13 @@ export function extractImages(markdown: string): ImageExtractionResult {
         placeholderIndex: placeholderIndex++,
         linkUrl: linkUrl || undefined,
       });
-      return `${IMAGE_PLACEHOLDER}${placeholderIndex - 1}${IMAGE_PLACEHOLDER}`;
+      return `${imagePlaceholder}${placeholderIndex - 1}${imagePlaceholder}`;
     }
   );
   
   // Third pass: Replace standalone HTML img tags <img src=":/resourceId" .../>
   markdownWithPlaceholders = markdownWithPlaceholders.replace(
-    HTML_IMG_REGEX,
+    htmlImgRegex,
     (match, resourceId) => {
       const altText = extractAltFromHtmlImg(match);
       images.push({
@@ -127,7 +127,7 @@ export function extractImages(markdown: string): ImageExtractionResult {
         originalMarkdown: match,
         placeholderIndex: placeholderIndex++,
       });
-      return `${IMAGE_PLACEHOLDER}${placeholderIndex - 1}${IMAGE_PLACEHOLDER}`;
+      return `${imagePlaceholder}${placeholderIndex - 1}${imagePlaceholder}`;
     }
   );
   
@@ -175,7 +175,7 @@ export function calculateImagePositions<P extends AdjustableRange, T extends Adj
   }[] = [];
   
   for (const img of images) {
-    const placeholder = `${IMAGE_PLACEHOLDER}${img.placeholderIndex}${IMAGE_PLACEHOLDER}`;
+    const placeholder = `${imagePlaceholder}${img.placeholderIndex}${imagePlaceholder}`;
     const pos = plainText.indexOf(placeholder);
     
     if (pos !== -1) {
@@ -217,7 +217,7 @@ export function calculateImagePositions<P extends AdjustableRange, T extends Adj
   // Remove in reverse order to preserve positions
   for (let i = placeholderInfos.length - 1; i >= 0; i--) {
     const info = placeholderInfos[i];
-    const placeholder = `${IMAGE_PLACEHOLDER}${info.image.placeholderIndex}${IMAGE_PLACEHOLDER}`;
+    const placeholder = `${imagePlaceholder}${info.image.placeholderIndex}${imagePlaceholder}`;
     cleanPlainText = cleanPlainText.substring(0, info.originalPosition) + 
                      cleanPlainText.substring(info.originalPosition + info.length);
   }
@@ -255,9 +255,9 @@ export function calculateImagePositions<P extends AdjustableRange, T extends Adj
  * Check if markdown contains Joplin images (markdown or HTML syntax)
  */
 export function hasJoplinImages(markdown: string): boolean {
-  JOPLIN_IMAGE_REGEX.lastIndex = 0; // Reset regex state
-  HTML_IMG_REGEX.lastIndex = 0; // Reset regex state
-  LINKED_HTML_IMG_REGEX.lastIndex = 0; // Reset regex state
-  return JOPLIN_IMAGE_REGEX.test(markdown) || HTML_IMG_REGEX.test(markdown) || LINKED_HTML_IMG_REGEX.test(markdown);
+  joplinImageRegex.lastIndex = 0; // Reset regex state
+  htmlImgRegex.lastIndex = 0; // Reset regex state
+  linkedHtmlImgRegex.lastIndex = 0; // Reset regex state
+  return joplinImageRegex.test(markdown) || htmlImgRegex.test(markdown) || linkedHtmlImgRegex.test(markdown);
 }
 

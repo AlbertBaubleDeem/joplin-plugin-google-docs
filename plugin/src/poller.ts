@@ -9,15 +9,15 @@ import path from 'path';
 import { loadMapping, Mapping as PluginMapping } from './mapping';
 import { pushNote } from './commands/pushNote';
 import { pullNote } from './commands/pullNote';
-import { SyncContext } from './services/SyncContext';
+import { SyncContext } from './services/syncContext';
 
-function loadJson<T>(p: string, fallback: T): T {
+const loadJson = <T>(p: string, fallback: T): T => {
   try {
     return JSON.parse(fs.readFileSync(p, 'utf8')) as T;
   } catch {
     return fallback;
   }
-}
+};
 
 export class MinimalPoller {
   private statePath: string;
@@ -297,8 +297,6 @@ export class MinimalPoller {
   }
 }
 
-// ---- Helpers kept small and composable (no spaghetti) ----
-
 async function fetchNoteUpdated(j: any, noteId: string): Promise<number> {
   const meta = await j.data.get(['notes', noteId], { fields: ['id', 'updated_time'] });
   return Number(meta.updated_time || 0);
@@ -314,13 +312,13 @@ async function fetchDocRevisionId(docs: any, fileId: string): Promise<string> {
   return String((docRes.data as any).revisionId || '');
 }
 
-function decideAction(args: {
+const decideAction = (args: {
   lastKnownRevisionId?: string;
   currentRevisionId?: string;
   noteUpdated: number;
   docModified: number;
   lastSyncTs?: number;
-}): { action: 'pull' | 'push' | 'skip'; reason: string } {
+}): { action: 'pull' | 'push' | 'skip'; reason: string } => {
   const { lastKnownRevisionId, currentRevisionId, noteUpdated, docModified, lastSyncTs } = args;
   const lastSync = Number(lastSyncTs || 0);
   
@@ -336,4 +334,4 @@ function decideAction(args: {
   
   // Nothing changed - skip instead of defaulting to pull (which would cause sync loop)
   return { action: 'skip', reason: 'noChanges' };
-}
+};

@@ -21,8 +21,7 @@
  * - Bucket lifecycle deletes objects after 1 day as backup
  */
 
-import * as crypto from 'crypto';
-import * as fs from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { ImageRange } from './converters/types';
 
 /**
@@ -87,7 +86,7 @@ async function convertToPngUsingCanvas(
 /**
  * MIME types that can be converted to PNG using Canvas
  */
-const CONVERTIBLE_MIME_TYPES = new Set([
+const convertibleMimeTypes = new Set([
   'image/webp',
   'image/bmp',
   'image/tiff',
@@ -144,9 +143,8 @@ export async function getResourceData(j: any, resourceId: string, debugLog?: (ms
       const resourcePath = await j.workspace.resourcePath(resourceId);
       log(`    Path: ${resourcePath}`);
       if (resourcePath) {
-        const fs = require('fs');
-        if (fs.existsSync(resourcePath)) {
-          const data = fs.readFileSync(resourcePath);
+        if (existsSync(resourcePath)) {
+          const data = readFileSync(resourcePath);
           log(`    Read ${data.length} bytes from file`);
           return data.toString('base64');
         } else {
@@ -207,7 +205,7 @@ export async function getResourceData(j: any, resourceId: string, debugLog?: (ms
  * Supported image formats for Google Docs API
  * Only JPEG, PNG, and non-animated GIF are supported
  */
-const SUPPORTED_MIME_TYPES = new Set([
+const supportedMimeTypes = new Set([
   'image/png',
   'image/jpeg',
   'image/jpg',
@@ -217,16 +215,16 @@ const SUPPORTED_MIME_TYPES = new Set([
 /**
  * Check if a MIME type is supported by Google Docs
  */
-function isSupportedFormat(mimeType: string): boolean {
-  return SUPPORTED_MIME_TYPES.has(mimeType);
-}
+const isSupportedFormat = (mimeType: string): boolean => {
+  return supportedMimeTypes.has(mimeType);
+};
 
 
 
 /**
  * Get file extension from MIME type
  */
-function getExtensionFromMime(mimeType: string): string {
+const getExtensionFromMime = (mimeType: string): string => {
   const mimeToExt: Record<string, string> = {
     'image/png': 'png',
     'image/jpeg': 'jpg',
@@ -234,7 +232,7 @@ function getExtensionFromMime(mimeType: string): string {
     'image/gif': 'gif',
   };
   return mimeToExt[mimeType] || 'png';
-}
+};
 
 /**
  * Generate a unique object name for GCS.
@@ -245,7 +243,7 @@ function getExtensionFromMime(mimeType: string): string {
  * enabling image roundtrip without needing to set image description (which the
  * Google Docs API doesn't support via batchUpdate).
  */
-function generateUniqueObjectName(resourceId: string, mimeType?: string, originalFilename?: string): string {
+const generateUniqueObjectName = (resourceId: string, mimeType?: string, originalFilename?: string): string => {
   // Prefer extension from MIME type, then from filename, then default to png
   let ext = 'png';
   if (mimeType) {
@@ -258,7 +256,7 @@ function generateUniqueObjectName(resourceId: string, mimeType?: string, origina
   // Add timestamp to ensure uniqueness across multiple syncs
   const timestamp = Date.now();
   return `joplin_img_${resourceId}_${timestamp}.${ext}`;
-}
+};
 
 /**
  * Extract Joplin resource ID from a GCS URL.
@@ -466,7 +464,7 @@ async function processSingleImage(
     
     // Check if format is supported or convertible
     let mimeType = resource.mime || 'image/png';
-    const needsConversion = !isSupportedFormat(mimeType) && CONVERTIBLE_MIME_TYPES.has(mimeType);
+    const needsConversion = !isSupportedFormat(mimeType) && convertibleMimeTypes.has(mimeType);
     
     if (!isSupportedFormat(mimeType) && !needsConversion) {
       log(`  SKIP: Unsupported format ${mimeType} - cannot convert`);
@@ -547,12 +545,12 @@ export async function processImages(
   log(`processImages: ${imageRanges.length} images, bucket: ${bucketName}`);
   
   // Process images in parallel (with concurrency limit to avoid overwhelming the API)
-  const CONCURRENCY_LIMIT = 5;
+  const concurrencyLimit = 5;
   const results: (GCSUploadResult | null)[] = [];
   
-  for (let i = 0; i < imageRanges.length; i += CONCURRENCY_LIMIT) {
-    const batch = imageRanges.slice(i, i + CONCURRENCY_LIMIT);
-    log(`Processing batch ${Math.floor(i / CONCURRENCY_LIMIT) + 1}: ${batch.length} images`);
+  for (let i = 0; i < imageRanges.length; i += concurrencyLimit) {
+    const batch = imageRanges.slice(i, i + concurrencyLimit);
+    log(`Processing batch ${Math.floor(i / concurrencyLimit) + 1}: ${batch.length} images`);
     
     const batchResults = await Promise.all(
       batch.map((imageRange, batchIndex) =>

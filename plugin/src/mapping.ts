@@ -20,13 +20,13 @@ export type Mapping = {
   syncFolderId?: string;
 };
 
-function loadJson<T>(filePath: string, fallback: T): T {
+const loadJson = <T>(filePath: string, fallback: T): T => {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
   } catch {
     return fallback;
   }
-}
+};
 
 /**
  * Resolve the path to the mapping.json file.
@@ -70,8 +70,6 @@ export function getBinding(baseDir: string, noteId: string): NoteBinding | undef
   return m.notes[noteId];
 }
 
-// --- Drive appProperties helpers (appProperties-only pairing strategy) ---
-
 export type DriveLike = {
   files: {
     get(params: any): Promise<{ data: any }>;
@@ -79,11 +77,11 @@ export type DriveLike = {
   };
 };
 
-export const APP_PROPERTY_NOTE_ID = 'joplinNoteId';
-export const APP_PROPERTY_TAB_ID = 'tabId';
-export const APP_PROPERTY_VERSION = 'pairingVersion';
-export const APP_PROPERTY_PLUGIN_ID = 'pluginId';
-export const PLUGIN_ID = 'io.github.albertbaubledeem.joplin.google-docs';
+export const appPropertyNoteId = 'joplinNoteId';
+export const appPropertyTabId = 'tabId';
+export const appPropertyVersion = 'pairingVersion';
+export const appPropertyPluginId = 'pluginId';
+export const pluginId = 'io.github.albertbaubledeem.joplin.google-docs';
 
 export async function getDriveAppProperties(drive: DriveLike, fileId: string): Promise<Record<string, string>> {
   const { data } = await drive.files.get({

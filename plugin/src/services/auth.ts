@@ -4,23 +4,23 @@
  * Uses static imports so webpack can bundle the dependencies directly.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
 import { OAuth2Client } from 'google-auth-library';
 
 /**
  * Load environment variables from .env file
  */
-function loadEnvFromFile(installDir: string): void {
-  const envPath = path.resolve(installDir, '.env');
-  if (fs.existsSync(envPath)) {
-    const env = fs.readFileSync(envPath, 'utf8');
+const loadEnvFromFile = (installDir: string): void => {
+  const envPath = resolve(installDir, '.env');
+  if (existsSync(envPath)) {
+    const env = readFileSync(envPath, 'utf8');
     for (const line of env.split('\n')) {
       const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
       if (m) (process as any).env[m[1]] = m[2];
     }
   }
-}
+};
 
 /**
  * Get OAuth2 client credentials from environment
@@ -46,8 +46,8 @@ export async function getAuthClient(installDir: string): Promise<OAuth2Client> {
   const { clientId, clientSecret, redirectUri } = getOAuthCredentials();
   
   // Load OAuth tokens
-  const tokenPath = path.resolve(installDir, '.token.json');
-  const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+  const tokenPath = resolve(installDir, '.token.json');
+  const tokens = JSON.parse(readFileSync(tokenPath, 'utf8'));
   
   // Create OAuth2 client with credentials
   const auth = new OAuth2Client(clientId, clientSecret, redirectUri);

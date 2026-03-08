@@ -9,11 +9,7 @@
 import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange, ListRange } from './types';
 import { getMonoFont, getElementSpacing } from './config';
 import { debug } from './debug';
-import { getCalloutDefinition, CALLOUT_BY_TYPE } from './callout-config';
-
-// =============================================================================
-// LIST TRACKING
-// =============================================================================
+import { getCalloutDefinition, calloutByType } from './callout-config';
 
 /**
  * Builder class for tracking and creating list ranges.
@@ -148,10 +144,6 @@ class ListRangeBuilder {
     }
   }
 }
-
-// =============================================================================
-// MAIN ENTRY POINT
-// =============================================================================
 
 /**
  * Convert IR document to plain text with style ranges.
@@ -310,10 +302,6 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   return result;
 }
 
-// =============================================================================
-// PARAGRAPH CONVERSION HELPERS
-// =============================================================================
-
 /**
  * Convert a paragraph to text and inline style ranges.
  * 
@@ -321,10 +309,10 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
  * which creates soft line breaks within the same paragraph in Google Docs.
  * This allows multi-line content (like images) to stay within a single list item.
  */
-function paragraphToTextAndRanges(
+const paragraphToTextAndRanges = (
   para: Paragraph,
   startOffset: number
-): { text: string; ranges: TextRange[] } {
+): { text: string; ranges: TextRange[] } => {
   let text = '';
   const ranges: TextRange[] = [];
   const isCodeBlock = para.type === 'code_block';
@@ -358,12 +346,12 @@ function paragraphToTextAndRanges(
   }
   
   return { text, ranges };
-}
+};
 
 /**
  * Get the Google Docs named style type for a paragraph.
  */
-function getParagraphStyle(para: Paragraph): string {
+const getParagraphStyle = (para: Paragraph): string => {
   switch (para.type) {
     case 'title':
       return 'TITLE';
@@ -379,11 +367,7 @@ function getParagraphStyle(para: Paragraph): string {
     default:
       return 'NORMAL_TEXT';
   }
-}
-
-// =============================================================================
-// DOCS API REQUEST BUILDERS
-// =============================================================================
+};
 
 /**
  * Build Google Docs API batchUpdate requests from plain text and ranges.
@@ -457,10 +441,6 @@ export function buildListBulletRequests(listRanges: ListRange[]): any[] {
     });
 }
 
-// =============================================================================
-// PARAGRAPH STYLE HELPERS
-// =============================================================================
-
 /** RGB color type for paragraph styling */
 interface RgbColor {
   red: number;
@@ -469,21 +449,21 @@ interface RgbColor {
 }
 
 /** Build border style object */
-function buildBorderStyle(width: number, padding: number, color: RgbColor): any {
+const buildBorderStyle = (width: number, padding: number, color: RgbColor): any => {
   return {
     width: { magnitude: width, unit: 'PT' },
     padding: { magnitude: padding, unit: 'PT' },
     color: { color: { rgbColor: color } },
     dashStyle: 'SOLID',
   };
-}
+};
 
 /** Apply spacing to paragraph style and fields list */
-function applySpacing(
+const applySpacing = (
   paragraphStyle: any,
   fields: string[],
   spacing: { spaceAbove?: number; spaceBelow?: number }
-): void {
+): void => {
   if (spacing.spaceAbove !== undefined) {
     paragraphStyle.spaceAbove = { magnitude: spacing.spaceAbove, unit: 'PT' };
     fields.push('spaceAbove');
@@ -492,10 +472,10 @@ function applySpacing(
     paragraphStyle.spaceBelow = { magnitude: spacing.spaceBelow, unit: 'PT' };
     fields.push('spaceBelow');
   }
-}
+};
 
 /** Build code block style request */
-function buildCodeBlockStyle(startIndex: number, endIndex: number, installDir?: string): any {
+const buildCodeBlockStyle = (startIndex: number, endIndex: number, installDir?: string): any => {
   const spacing = getElementSpacing('code_block', installDir);
   const paragraphStyle: any = {
     shading: {
@@ -516,10 +496,10 @@ function buildCodeBlockStyle(startIndex: number, endIndex: number, installDir?: 
       fields: fields.join(','),
     },
   };
-}
+};
 
 /** Build code language label style request */
-function buildCodeLangLabelStyle(startIndex: number, endIndex: number, installDir?: string): any {
+const buildCodeLangLabelStyle = (startIndex: number, endIndex: number, installDir?: string): any => {
   const spacing = getElementSpacing('code_lang_label', installDir);
   const paragraphStyle: any = { alignment: 'END' };
   
@@ -533,16 +513,16 @@ function buildCodeLangLabelStyle(startIndex: number, endIndex: number, installDi
       fields: fields.join(','),
     },
   };
-}
+};
 
 /** Build callout style request */
-function buildCalloutStyle(
+const buildCalloutStyle = (
   startIndex: number,
   endIndex: number,
   calloutTypeName: string,
   installDir?: string
-): any | null {
-  const def = CALLOUT_BY_TYPE[calloutTypeName as keyof typeof CALLOUT_BY_TYPE];
+): any | null => {
+  const def = calloutByType[calloutTypeName as keyof typeof calloutByType];
   if (!def) return null;
   
   const spacing = getElementSpacing('callout', installDir);
@@ -574,10 +554,10 @@ function buildCalloutStyle(
       fields: fields.join(','),
     },
   };
-}
+};
 
 /** Build named style request (for headings, normal text, etc.) */
-function buildNamedStyle(startIndex: number, endIndex: number, styleName: string): any {
+const buildNamedStyle = (startIndex: number, endIndex: number, styleName: string): any => {
   return {
     updateParagraphStyle: {
       range: { startIndex, endIndex },
@@ -585,17 +565,13 @@ function buildNamedStyle(startIndex: number, endIndex: number, styleName: string
       fields: 'namedStyleType',
     },
   };
-}
-
-// =============================================================================
-// PARAGRAPH STYLE REQUEST BUILDER
-// =============================================================================
+};
 
 /**
  * Build a paragraph style request.
  * Delegates to specific style builders based on the style type.
  */
-function buildParagraphStyleRequest(range: ParaRange, monoFont: string, installDir?: string): any {
+const buildParagraphStyleRequest = (range: ParaRange, monoFont: string, installDir?: string): any => {
   // Docs API uses 1-based indices
   const startIndex = range.start + 1;
   const endIndex = range.end + 1;
@@ -619,17 +595,13 @@ function buildParagraphStyleRequest(range: ParaRange, monoFont: string, installD
   
   // Regular paragraph with named style
   return buildNamedStyle(startIndex, endIndex, range.style);
-}
-
-// =============================================================================
-// TEXT STYLE REQUEST BUILDERS
-// =============================================================================
+};
 
 /**
  * Build text style requests for a text range.
  * Returns multiple requests if needed (one for bold/italic/link, one for font).
  */
-function buildTextStyleRequests(range: TextRange, monoFont: string): any[] {
+const buildTextStyleRequests = (range: TextRange, monoFont: string): any[] => {
   const requests: any[] = [];
   const startIndex = range.start + 1;
   const endIndex = range.end + 1;
@@ -689,7 +661,7 @@ function buildTextStyleRequests(range: TextRange, monoFont: string): any[] {
   }
   
   return requests;
-}
+};
 
 /**
  * Build monospace font requests for code block paragraphs.

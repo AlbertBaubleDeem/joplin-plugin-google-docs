@@ -14,17 +14,17 @@ import {
   FolderMetadata,
   DocumentBinding,
 } from './IDocumentProvider';
-import { SyncContext } from '../services/SyncContext';
-import { ensureSyncFolder } from '../services/SyncFolderManager';
+import { SyncContext } from '../services/syncContext';
+import { ensureSyncFolder } from '../services/syncFolderManager';
 import {
-  APP_PROPERTY_NOTE_ID,
-  APP_PROPERTY_PLUGIN_ID,
-  APP_PROPERTY_VERSION,
-  PLUGIN_ID,
+  appPropertyNoteId,
+  appPropertyPluginId,
+  appPropertyVersion,
+  pluginId,
 } from '../mapping';
 
 /** App property key for notebook ID */
-const APP_PROPERTY_NOTEBOOK_ID = 'joplinNotebookId';
+const appPropertyNotebookId = 'joplinNotebookId';
 
 /**
  * Google Docs implementation of the document provider interface.
@@ -267,16 +267,16 @@ export class GoogleDocsProvider implements IDocumentProvider {
 
   async setDocumentBinding(docId: string, binding: DocumentBinding): Promise<void> {
     const appProperties: Record<string, string> = {
-      [APP_PROPERTY_NOTE_ID]: binding.noteId,
-      [APP_PROPERTY_PLUGIN_ID]: binding.pluginId || PLUGIN_ID,
+      [appPropertyNoteId]: binding.noteId,
+      [appPropertyPluginId]: binding.pluginId || pluginId,
     };
 
     if (binding.notebookId) {
-      appProperties[APP_PROPERTY_NOTEBOOK_ID] = binding.notebookId;
+      appProperties[appPropertyNotebookId] = binding.notebookId;
     }
 
     if (binding.version) {
-      appProperties[APP_PROPERTY_VERSION] = binding.version;
+      appProperties[appPropertyVersion] = binding.version;
     }
 
     await this.drive.files.update({
@@ -296,7 +296,7 @@ export class GoogleDocsProvider implements IDocumentProvider {
       });
 
       const appProps = response.data.appProperties || {};
-      const noteId = appProps[APP_PROPERTY_NOTE_ID];
+      const noteId = appProps[appPropertyNoteId];
 
       if (!noteId) {
         return null;
@@ -304,9 +304,9 @@ export class GoogleDocsProvider implements IDocumentProvider {
 
       return {
         noteId,
-        notebookId: appProps[APP_PROPERTY_NOTEBOOK_ID],
-        pluginId: appProps[APP_PROPERTY_PLUGIN_ID],
-        version: appProps[APP_PROPERTY_VERSION],
+        notebookId: appProps[appPropertyNotebookId],
+        pluginId: appProps[appPropertyPluginId],
+        version: appProps[appPropertyVersion],
       };
     } catch (error) {
       // Return null if we can't access the file's properties

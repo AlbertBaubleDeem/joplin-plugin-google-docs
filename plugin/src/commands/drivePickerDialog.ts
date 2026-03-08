@@ -4,11 +4,11 @@
  * Uses SyncContext for authenticated API access.
  */
 
-import { createSyncContext } from '../services/SyncContext';
+import { createSyncContext } from '../services/syncContext';
 import { bindNote } from '../mapping';
 import { buildConversionDocFromTabs } from '../structure';
 import { convertDocumentToMarkdown } from '../converters';
-import { createNote, determineTargetFolder } from '../services/NoteOperations';
+import { createNote, determineTargetFolder } from '../services/noteOperations';
 import { showWarningDialog, showSuccessDialog } from '../services/styledDialogs';
 
 type Params = { j: any; installDir: string; dataDir: string };

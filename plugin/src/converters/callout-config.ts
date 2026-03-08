@@ -24,7 +24,7 @@ export type CalloutDefinition = {
 /**
  * Convert hex color to RGB (0-1 range for Google Docs API).
  */
-function hexToRgb(hex: string): { red: number; green: number; blue: number } {
+const hexToRgb = (hex: string): { red: number; green: number; blue: number } => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!result) {
     return { red: 0, green: 0, blue: 0 };
@@ -34,12 +34,12 @@ function hexToRgb(hex: string): { red: number; green: number; blue: number } {
     green: parseInt(result[2], 16) / 255,
     blue: parseInt(result[3], 16) / 255,
   };
-}
+};
 
 /**
  * All supported callout types with their styling.
  */
-export const CALLOUT_DEFINITIONS: CalloutDefinition[] = [
+export const calloutDefinitions: CalloutDefinition[] = [
   {
     type: 'note',
     color: '#02A4F1',
@@ -78,50 +78,32 @@ export const CALLOUT_DEFINITIONS: CalloutDefinition[] = [
   },
 ];
 
-/**
- * Map of callout type to definition for quick lookup.
- */
-export const CALLOUT_BY_TYPE: Record<CalloutType, CalloutDefinition> = 
-  CALLOUT_DEFINITIONS.reduce((acc, def) => {
+export const calloutByType: Record<CalloutType, CalloutDefinition> = 
+  calloutDefinitions.reduce((acc, def) => {
     acc[def.type] = def;
     return acc;
   }, {} as Record<CalloutType, CalloutDefinition>);
 
-/**
- * Map of symbol to callout type for detection during Docs → IR conversion.
- */
-export const CALLOUT_BY_SYMBOL: Record<string, CalloutType> = 
-  CALLOUT_DEFINITIONS.reduce((acc, def) => {
+export const calloutBySymbol: Record<string, CalloutType> = 
+  calloutDefinitions.reduce((acc, def) => {
     acc[def.symbol] = def.type;
     return acc;
   }, {} as Record<string, CalloutType>);
 
-/**
- * All callout type names for regex matching.
- */
-export const CALLOUT_TYPE_NAMES: CalloutType[] = CALLOUT_DEFINITIONS.map(d => d.type);
+export const calloutTypeNames: CalloutType[] = calloutDefinitions.map(d => d.type);
 
-/**
- * Regex pattern to match callout opening tags.
- * Matches: <note>, <info>, <question>, <warning>, <jarvis>, <tip>
- */
-export const CALLOUT_OPEN_TAG_REGEX = new RegExp(
-  `<(${CALLOUT_TYPE_NAMES.join('|')})>`,
+/** Matches: <note>, <info>, <question>, <warning>, <jarvis>, <tip> */
+export const calloutOpenTagRegex = new RegExp(
+  `<(${calloutTypeNames.join('|')})>`,
   'gi'
 );
 
-/**
- * Get callout definition by type.
- */
 export function getCalloutDefinition(type: CalloutType): CalloutDefinition | undefined {
-  return CALLOUT_BY_TYPE[type];
+  return calloutByType[type];
 }
 
-/**
- * Get callout type by symbol (for detection).
- */
 export function getCalloutTypeBySymbol(symbol: string): CalloutType | undefined {
-  return CALLOUT_BY_SYMBOL[symbol];
+  return calloutBySymbol[symbol];
 }
 
 /**
@@ -132,7 +114,7 @@ export function matchCalloutByColor(
 ): CalloutType | undefined {
   const tolerance = 0.05;
   
-  for (const def of CALLOUT_DEFINITIONS) {
+  for (const def of calloutDefinitions) {
     const dr = Math.abs(rgb.red - def.rgbColor.red);
     const dg = Math.abs(rgb.green - def.rgbColor.green);
     const db = Math.abs(rgb.blue - def.rgbColor.blue);

@@ -1,6 +1,6 @@
 import { bindNote as bindMappingNote } from '../mapping';
 import { showSuccessDialog, showErrorDialog } from '../services/styledDialogs';
-import { getSelectedNoteId } from '../services/NoteOperations';
+import { getSelectedNoteId } from '../services/noteOperations';
 
 type JoplinApi = any;
 

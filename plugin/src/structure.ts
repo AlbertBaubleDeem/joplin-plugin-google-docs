@@ -124,8 +124,6 @@ export class SyncStructureManager {
 
 
 
-// --- Tabs-aware content selection (shared by pull/push) ---
-
 export type TabSelectionResult = {
   convertDoc: DocLike; // normalized doc with body.content ready for conversion
   tabCount: number;

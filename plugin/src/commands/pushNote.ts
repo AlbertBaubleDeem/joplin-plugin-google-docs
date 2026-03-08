@@ -5,8 +5,8 @@ import {
   getBinding,
 } from '../mapping';
 import { convertMarkdownToPlainAndStyles, buildDocsStyleUpdateRequests, buildListBulletRequests } from '../converters';
-import { createSyncContext, SyncContext } from '../services/SyncContext';
-import { getSelectedNoteId, getNoteById } from '../services/NoteOperations';
+import { createSyncContext, SyncContext } from '../services/syncContext';
+import { getSelectedNoteId, getNoteById } from '../services/noteOperations';
 import { getGCSBucketNameAsync } from '../services/settings';
 import {
   processImages,
@@ -41,39 +41,39 @@ export type PushResult = {
 /**
  * Core push logic - extracted to avoid duplication
  */
-import * as fs from 'fs';
-import * as path from 'path';
+import { appendFileSync, writeFileSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 // Debug log collector - writes to file for persistence
 let debugLogPath: string | null = null;
 const debugLines: string[] = [];
 
-function debugLog(message: string) {
+const debugLog = (message: string) => {
   debugLines.push(message);
   // Also write to file for persistence
   if (debugLogPath) {
-    fs.appendFileSync(debugLogPath, message + '\n');
+    appendFileSync(debugLogPath, message + '\n');
   }
-}
+};
 
-function clearDebugLog() {
+const clearDebugLog = () => {
   debugLines.length = 0;
-}
+};
 
-function setDebugLogPath(dataDir: string) {
-  debugLogPath = path.join(dataDir, 'push-debug.log');
+const setDebugLogPath = (dataDir: string) => {
+  debugLogPath = join(dataDir, 'push-debug.log');
   // Clear the file
-  fs.writeFileSync(debugLogPath, '=== Push Debug Log ===\n');
-}
+  writeFileSync(debugLogPath, '=== Push Debug Log ===\n');
+};
 
 export function getDebugLog(): string[] {
   return [...debugLines];
 }
 
 export function getDebugLogFromFile(dataDir: string): string {
-  const logPath = path.join(dataDir, 'push-debug.log');
+  const logPath = join(dataDir, 'push-debug.log');
   try {
-    return fs.readFileSync(logPath, 'utf8');
+    return readFileSync(logPath, 'utf8');
   } catch {
     return 'No debug log file';
   }
@@ -88,13 +88,11 @@ async function executePush(
 ): Promise<{ newRevisionId: string; debugLog: string[] }> {
   const { google, auth, docs, installDir } = ctx;
 
-  // Initialize debug log file for persistence
   setDebugLogPath(dataDir);
   clearDebugLog();
   
   debugLog(`=== executePush for note ${noteId} ===`);
 
-  // Read note body (Markdown) using NoteOperations
   const note = await getNoteById(j, noteId, ['id', 'title', 'body']);
   const mdRaw: string = String(note.body ?? '');
   debugLog(`Note body length: ${mdRaw.length}`);
@@ -106,7 +104,6 @@ async function executePush(
   debugLog(`GCS bucket: ${gcsBucketName || 'NOT CONFIGURED'}, processImages: ${processImages_flag}`);
   console.log(`[pushNote] GCS bucket configured: ${gcsBucketName || 'NOT CONFIGURED'}`);
   
-  // Convert Markdown to plain text, style ranges, image positions, and list ranges
   // When GCS is not configured, images are preserved as markdown text (no placeholder extraction)
   const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { 
     installDir, 
@@ -128,12 +125,10 @@ async function executePush(
     debugLog( `Processing ${imageRanges.length} images via GCS`);
     console.log(`[pushNote] Processing ${imageRanges.length} images via GCS bucket: ${gcsBucketName}`);
     
-    // Initialize GCS storage client
     debugLog( `Initializing GCS storage client...`);
     const storage = google.storage({ version: 'v1', auth });
     debugLog( `GCS storage client created`);
     
-    // Upload images to GCS
     try {
       debugLog(`Calling processImages...`);
       const imageResult = await processImages(j, auth, storage, gcsBucketName, imageRanges, debugLog);
@@ -150,13 +145,11 @@ async function executePush(
     debugLog( `No images in note`);
   }
 
-  // Get current doc state to obtain revisionId and endIndex
   // Use includeTabsContent to handle documents with tabs correctly
   const docRes = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
   const docResData = docRes.data as any;
   const revisionId: string = String(docResData.revisionId || '');
   
-  // Get body from tabs if present, otherwise from main body
   let body = docResData.body || {};
   const mainBodyEndIndex = body.content?.length ? Number(body.content[body.content.length - 1].endIndex || 1) : 1;
   if (docResData.tabs?.length > 0) {
@@ -166,7 +159,6 @@ async function executePush(
   const content = Array.isArray(body.content) ? body.content : [];
   const endIndex = content.length ? Number(content[content.length - 1].endIndex || 1) : 1;
   
-  // Build content replacement requests
   const requests: any[] = [];
   // Avoid empty delete range (start==end). For empty docs endIndex is often 2.
   if (endIndex > 2) {
@@ -174,7 +166,6 @@ async function executePush(
   }
   requests.push({ insertText: { location: { index: 1 }, text: plain } });
 
-  // Push with optimistic concurrency
   await docs.documents.batchUpdate({
     documentId: fileId,
     requestBody: {
@@ -183,13 +174,11 @@ async function executePush(
     },
   });
 
-  // Read new revisionId and document state after text insertion
   // Use includeTabsContent to handle documents with tabs correctly
   let afterRes = await docs.documents.get({ documentId: fileId, includeTabsContent: true });
   const afterResData = afterRes.data as any;
   let newRevisionId: string = String(afterResData.revisionId || '');
   
-  // Get body from tabs if present, otherwise from main body
   let bodyAfterInsert = afterResData.body || {};
   if (afterResData.tabs?.length > 0) {
     const firstTab = afterResData.tabs[0];
@@ -250,8 +239,6 @@ async function executePush(
     }
   }
 
-  // Insert images if we have any uploaded
-  // First, get the actual document length after text insertion
   const docAfterText = await docs.documents.get({ documentId: fileId });
   const bodyAfterText = (docAfterText.data as any).body || {};
   const contentAfterText = Array.isArray(bodyAfterText.content) ? bodyAfterText.content : [];
@@ -262,7 +249,6 @@ async function executePush(
     console.log(`[pushNote] Inserting ${uploadedObjects.length} images into doc`);
     debugLog(`Inserting ${uploadedObjects.length} images into doc`);
     
-    // Build image insertion requests
     // textOffset of 0 because we're inserting at positions within the already-inserted text
     debugLog(`Building image insert requests...`);
     debugLog(`Plain text length: ${plain.length}, Doc endIndex: ${endIndexAfterText}`);
@@ -294,7 +280,6 @@ async function executePush(
         throw imgError;
       }
       
-      // Get final revisionId after image insertion
       afterRes = await docs.documents.get({ documentId: fileId });
       newRevisionId = String((afterRes.data as any).revisionId || '');
     } else {
@@ -360,23 +345,18 @@ export async function pushNote(params: Params): Promise<PushResult> {
   clearDebugLog();
   debugLog('pushNote started');
   
-  // Create sync context with authenticated API clients (or use provided one)
   debugLog('Creating sync context...');
   const ctx = params.ctx || await createSyncContext(installDir, dataDir, j);
   debugLog('Sync context created');
 
-  // Determine the note ID using NoteOperations
   const noteId = params.noteId || await getSelectedNoteId(j);
 
-  // Get binding and validate
   const binding = getBinding(dataDir, noteId);
   if (!binding?.fileId) throw new Error('Note is not bound to a Google Doc.');
   const fileId = binding.fileId;
 
-  // Execute the push
   const result = await executePush(ctx, j, noteId, fileId, dataDir);
 
-  // Update mapping
   await updateMappingAfterPush(ctx, noteId, fileId, result.newRevisionId);
 
   return { noteId, fileId, newRevisionId: result.newRevisionId, debugLog: result.debugLog };

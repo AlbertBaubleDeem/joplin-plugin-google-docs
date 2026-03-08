@@ -10,25 +10,25 @@
  * Uses static imports so webpack can bundle the dependencies directly.
  */
 
-import * as http from 'http';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as url from 'url';
+import { createServer, Server } from 'http';
+import { writeFileSync, existsSync, readFileSync, unlinkSync } from 'fs';
+import { resolve } from 'path';
+import { parse } from 'url';
 import { OAuth2Client } from 'google-auth-library';
 
 // OAuth scopes required by the plugin
 // - drive.file: Only files created by this app or explicitly opened by user
 // - documents: Read/write access to Google Docs
 // - devstorage.full_control: Upload images to GCS and set public ACLs for embedding in docs
-const OAUTH_SCOPES = [
+const oauthScopes = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/devstorage.full_control',
 ];
 
 // Default callback port
-const DEFAULT_PORT = 3000;
-const REDIRECT_PATH = '/oauth2callback';
+const defaultPort = 3000;
+const redirectPath = '/oauth2callback';
 
 export interface OAuthConfig {
   clientId: string;
@@ -46,14 +46,14 @@ export interface OAuthResult {
  * Generate the Google OAuth authorization URL
  */
 export function generateAuthUrl(config: OAuthConfig): string {
-  const port = config.port || DEFAULT_PORT;
-  const redirectUri = `http://localhost:${port}${REDIRECT_PATH}`;
+  const port = config.port || defaultPort;
+  const redirectUri = `http://localhost:${port}${redirectPath}`;
   
   const oauth2Client = new OAuth2Client(config.clientId, config.clientSecret, redirectUri);
   
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: OAUTH_SCOPES,
+    scope: oauthScopes,
     prompt: 'consent',
   });
 }
@@ -71,14 +71,14 @@ export function startOAuthServer(
   installDir: string,
   timeoutMs: number = 5 * 60 * 1000
 ): Promise<OAuthResult> {
-  return new Promise((resolve) => {
-    const port = config.port || DEFAULT_PORT;
-    const redirectUri = `http://localhost:${port}${REDIRECT_PATH}`;
+  return new Promise((done) => {
+    const port = config.port || defaultPort;
+    const redirectUri = `http://localhost:${port}${redirectPath}`;
     
     // Create OAuth2 client for token exchange
     const oauth2Client = new OAuth2Client(config.clientId, config.clientSecret, redirectUri);
     
-    let server: http.Server | null = null;
+    let server: Server | null = null;
     let timeoutId: NodeJS.Timeout | null = null;
     
     const cleanup = () => {
@@ -92,13 +92,13 @@ export function startOAuthServer(
     // Set timeout
     timeoutId = setTimeout(() => {
       cleanup();
-      resolve({ success: false, error: 'Authorization timed out. Please try again.' });
+      done({ success: false, error: 'Authorization timed out. Please try again.' });
     }, timeoutMs);
     
-    server = http.createServer(async (req, res) => {
-      const parsedUrl = url.parse(req.url || '', true);
+    server = createServer(async (req, res) => {
+      const parsedUrl = parse(req.url || '', true);
       
-      if (parsedUrl.pathname !== REDIRECT_PATH) {
+      if (parsedUrl.pathname !== redirectPath) {
         res.writeHead(404);
         res.end('Not Found');
         return;
@@ -119,7 +119,7 @@ export function startOAuthServer(
           </html>
         `);
         cleanup();
-        resolve({ success: false, error: `Authorization denied: ${error}` });
+        done({ success: false, error: `Authorization denied: ${error}` });
         return;
       }
       
@@ -134,7 +134,7 @@ export function startOAuthServer(
           </html>
         `);
         cleanup();
-        resolve({ success: false, error: 'No authorization code received' });
+        done({ success: false, error: 'No authorization code received' });
         return;
       }
       
@@ -143,8 +143,8 @@ export function startOAuthServer(
         const { tokens } = await oauth2Client.getToken(code);
         
         // Save tokens
-        const tokenPath = path.resolve(installDir, '.token.json');
-        fs.writeFileSync(tokenPath, JSON.stringify(tokens, null, 2));
+        const tokenPath = resolve(installDir, '.token.json');
+        writeFileSync(tokenPath, JSON.stringify(tokens, null, 2));
         
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`
@@ -157,7 +157,7 @@ export function startOAuthServer(
           </html>
         `);
         cleanup();
-        resolve({ success: true, tokens });
+        done({ success: true, tokens });
       } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'text/html' });
         res.end(`
@@ -170,21 +170,21 @@ export function startOAuthServer(
           </html>
         `);
         cleanup();
-        resolve({ success: false, error: `Token exchange failed: ${err.message || err}` });
+        done({ success: false, error: `Token exchange failed: ${err.message || err}` });
       }
     });
     
     server.on('error', (err: any) => {
       cleanup();
       if (err.code === 'EADDRINUSE') {
-        resolve({ success: false, error: `Port ${port} is already in use. Close other applications using this port and try again.` });
+        done({ success: false, error: `Port ${port} is already in use. Close other applications using this port and try again.` });
       } else {
-        resolve({ success: false, error: `Server error: ${err.message}` });
+        done({ success: false, error: `Server error: ${err.message}` });
       }
     });
     
     server.listen(port, () => {
-      console.log(`[gdocs-oauth] Listening on http://localhost:${port}${REDIRECT_PATH}`);
+      console.log(`[gdocs-oauth] Listening on http://localhost:${port}${redirectPath}`);
     });
   });
 }
@@ -193,14 +193,14 @@ export function startOAuthServer(
  * Check if tokens exist and are valid
  */
 export function hasValidTokens(installDir: string): boolean {
-  const tokenPath = path.resolve(installDir, '.token.json');
+  const tokenPath = resolve(installDir, '.token.json');
   
-  if (!fs.existsSync(tokenPath)) {
+  if (!existsSync(tokenPath)) {
     return false;
   }
   
   try {
-    const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+    const tokens = JSON.parse(readFileSync(tokenPath, 'utf8'));
     // Check if we have at least an access token or refresh token
     return !!(tokens.access_token || tokens.refresh_token);
   } catch {
@@ -212,9 +212,9 @@ export function hasValidTokens(installDir: string): boolean {
  * Delete stored tokens (for re-authorization)
  */
 export function clearTokens(installDir: string): void {
-  const tokenPath = path.resolve(installDir, '.token.json');
+  const tokenPath = resolve(installDir, '.token.json');
   
-  if (fs.existsSync(tokenPath)) {
-    fs.unlinkSync(tokenPath);
+  if (existsSync(tokenPath)) {
+    unlinkSync(tokenPath);
   }
 }

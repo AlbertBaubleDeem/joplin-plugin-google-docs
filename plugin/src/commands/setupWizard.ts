@@ -10,14 +10,14 @@
  * 6. Completion confirmation
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { SETTING_KEYS, getSettings } from '../services/settings';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+import { settingKeys, getSettings } from '../services/settings';
 import { hasValidTokens } from '../services/oauthServer';
 import { authorize } from './authorize';
 import { showErrorDialog } from '../services/styledDialogs';
-import { createSyncContext } from '../services/SyncContext';
-import { ensureSyncFolder } from '../services/SyncFolderManager';
+import { createSyncContext } from '../services/syncContext';
+import { ensureSyncFolder } from '../services/syncFolderManager';
 
 export interface SetupWizardParams {
   j: any;
@@ -36,16 +36,16 @@ type WizardStep = 'welcome' | 'credentials' | 'authorize' | 'syncFolder' | 'comp
 /**
  * Check if credentials exist (in settings or .env)
  */
-function hasCredentials(installDir: string, settings: { clientId: string; clientSecret: string }): boolean {
+const hasCredentials = (installDir: string, settings: { clientId: string; clientSecret: string }): boolean => {
   // Check settings first
   if (settings.clientId && settings.clientSecret) {
     return true;
   }
   
   // Check .env file
-  const envPath = path.resolve(installDir, '.env');
-  if (fs.existsSync(envPath)) {
-    const env = fs.readFileSync(envPath, 'utf8');
+  const envPath = resolve(installDir, '.env');
+  if (existsSync(envPath)) {
+    const env = readFileSync(envPath, 'utf8');
     let hasId = false;
     let hasSecret = false;
     for (const line of env.split('\n')) {
@@ -56,7 +56,7 @@ function hasCredentials(installDir: string, settings: { clientId: string; client
   }
   
   return false;
-}
+};
 
 /**
  * Run the setup wizard
@@ -99,8 +99,8 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
           clientSecret = result.clientSecret;
           
           // Save credentials to settings
-          await j.settings.setValue(SETTING_KEYS.CLIENT_ID, clientId);
-          await j.settings.setValue(SETTING_KEYS.CLIENT_SECRET, clientSecret);
+          await j.settings.setValue(settingKeys.CLIENT_ID, clientId);
+          await j.settings.setValue(settingKeys.CLIENT_SECRET, clientSecret);
           
           currentStep = 'authorize';
         }
@@ -136,7 +136,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
           return { completed: false, cancelled: true, message: 'Setup cancelled.' };
         } else {
           if (result.folderId) {
-            await j.settings.setValue(SETTING_KEYS.SYNC_FOLDER_ID, result.folderId);
+            await j.settings.setValue(settingKeys.SYNC_FOLDER_ID, result.folderId);
           }
           currentStep = 'complete';
         }
@@ -469,14 +469,14 @@ async function showCompleteStep(j: any): Promise<void> {
 /**
  * Escape HTML special characters
  */
-function escapeHtml(str: string): string {
+const escapeHtml = (str: string): string => {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
+};
 
 /**
  * Check if setup is needed (no valid tokens)

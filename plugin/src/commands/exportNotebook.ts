@@ -4,14 +4,14 @@
  * Uses GoogleDocsProvider for document operations.
  */
 
-import { loadMapping, saveMapping, bindNote, PLUGIN_ID } from '../mapping';
-import { createSyncContext } from '../services/SyncContext';
-import { getSelectedFolder, getFolderById, getNotesInFolder } from '../services/NoteOperations';
+import { loadMapping, saveMapping, bindNote, pluginId } from '../mapping';
+import { createSyncContext } from '../services/syncContext';
+import { getSelectedFolder, getFolderById, getNotesInFolder } from '../services/noteOperations';
 import { pushNoteById } from './pushNote';
 import { showWarningDialog, showInfoDialog } from '../services/styledDialogs';
 
-const APP_PROPERTY_NOTE_ID = 'joplinNoteId';
-const APP_PROPERTY_NOTEBOOK_ID = 'joplinNotebookId';
+const appPropertyNoteId = 'joplinNoteId';
+const appPropertyNotebookId = 'joplinNotebookId';
 
 /**
  * Parameters for exportNotebook command
@@ -49,10 +49,8 @@ type ExportResult = {
 export async function exportNotebook(args: ExportParams): Promise<ExportResult | undefined> {
   const { j, installDir, dataDir } = args;
 
-  // Create sync context with authenticated API clients
   const ctx = await createSyncContext(installDir, dataDir, j);
 
-  // Get the folder to export
   let folderId = args.folderId;
   if (!folderId) {
     const folder = await getSelectedFolder(j);
@@ -62,13 +60,11 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
     folderId = folder.id;
   }
 
-  // Get folder details
   const folderData = await getFolderById(j, folderId);
   if (!folderData) {
     throw new Error('Could not find notebook');
   }
 
-  // Get all notes in the folder
   const notes = await getNotesInFolder(j, folderId, {
     fields: ['id', 'title', 'body', 'user_created_time', 'user_updated_time'],
     orderBy: 'user_created_time',
@@ -76,7 +72,6 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
     limit: 100, // Google Docs max tab limit
   });
 
-  // Check limits
   if (notes.length === 0) {
     throw new Error('Notebook has no notes');
   }
@@ -90,7 +85,6 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
     await showWarningDialog(j, 'Large Notebook', `This notebook has ${notes.length} notes. Performance may degrade with many documents.`);
   }
 
-  // Filter out already synced notes
   const mapping = loadMapping(dataDir);
   const unboundNotes = notes.filter((note: any) => !mapping.notes[note.id]?.fileId);
 
@@ -108,10 +102,8 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
     });
   }
 
-  // Ensure sync folder exists via provider
   const syncFolderId = await ctx.provider.ensureSyncFolder();
 
-  // Create a folder for the notebook inside sync folder via provider
   console.log('[exportNotebook] Creating folder for notebook:', folderData.title);
   const notebookFolder = await ctx.provider.createFolder(
     folderData.title || 'Untitled Notebook',
@@ -119,55 +111,47 @@ export async function exportNotebook(args: ExportParams): Promise<ExportResult |
   );
   const notebookFolderId = notebookFolder.id;
 
-  // Create individual Google Docs for each note
   console.log('[exportNotebook] Creating individual documents for each note in the notebook');
 
-  // Create a document for each unbound note
   for (let i = 0; i < unboundNotes.length; i++) {
     const note = unboundNotes[i];
     console.log(`[exportNotebook] Creating document ${i + 1}/${unboundNotes.length} for note: ${note.title}`);
 
-    // Create the document via provider (in the notebook folder)
     const createResult = await ctx.provider.createDocument(
       note.title || `Note ${i + 1}`,
       notebookFolderId
     );
     const docId = createResult.metadata.id;
 
-    // Set app properties for binding via provider
     await ctx.provider.updateAppProperties(docId, {
-      [APP_PROPERTY_NOTE_ID]: note.id,
-      pluginId: PLUGIN_ID,
-      [APP_PROPERTY_NOTEBOOK_ID]: folderId!,
+      [appPropertyNoteId]: note.id,
+      pluginId: pluginId,
+      [appPropertyNotebookId]: folderId!,
     });
 
-    // Update local binding for this note
     bindNote(dataDir, note.id, {
       fileId: docId,
       lastSyncTs: Date.now(),
     });
     console.log(`[exportNotebook] Bound note ${note.id} to doc ${docId}`);
 
-    // Push full note content including images using the universal push command
     await pushNoteById({ j, installDir, dataDir, noteId: note.id });
     console.log(`[exportNotebook] Pushed content for note ${note.id}`);
   }
 
-  // Set notebook folder app properties
-  // Note: Using direct drive call since provider doesn't have folder-specific appProperties method
+  // Using direct drive call since provider doesn't have folder-specific appProperties method
   await ctx.drive.files.update({
     fileId: notebookFolderId,
     requestBody: {
       appProperties: {
-        [APP_PROPERTY_NOTEBOOK_ID]: folderId,
-        pluginId: PLUGIN_ID,
+        [appPropertyNotebookId]: folderId,
+        pluginId: pluginId,
         noteCount: String(unboundNotes.length),
       },
     },
     supportsAllDrives: true,
   });
 
-  // Update local mappings - reload to get the note bindings we just created
   const updatedMapping = loadMapping(dataDir);
   updatedMapping.notebooks[folderId!] = {
     fileId: notebookFolderId,

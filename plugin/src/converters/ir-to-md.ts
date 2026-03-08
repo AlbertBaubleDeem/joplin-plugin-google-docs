@@ -9,21 +9,14 @@ import { IRDocument, Paragraph, StyledSpan, ConverterConfig } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
 
-/**
- * Check if a paragraph contains only an image reference.
- */
-function isImageOnlyParagraph(para: Paragraph): boolean {
+const isImageOnlyParagraph = (para: Paragraph): boolean => {
   if (para.spans.length !== 1) return false;
   const text = para.spans[0].text.trim();
   // Match Joplin image syntax: ![alt](:/resourceId) or ![](:/resourceId)
   return /^!\[.*?\]\(:\/[a-fA-F0-9]{32}\)$/.test(text);
-}
+};
 
-/**
- * Check if a paragraph is a list item.
- * Checks both the type property and legacy text-based detection.
- */
-function isListItemParagraph(para: Paragraph): boolean {
+const isListItemParagraph = (para: Paragraph): boolean => {
   // Check type first (new list_item type)
   if (para.type === 'list_item') return true;
   
@@ -32,18 +25,16 @@ function isListItemParagraph(para: Paragraph): boolean {
   const firstSpan = para.spans[0].text;
   // Match various list markers
   return /^[-*•◦▪]\s/.test(firstSpan) || /^\d+\.\s/.test(firstSpan);
-}
+};
 
 /**
- * Check if a paragraph is self-delimiting and doesn't need extra blank lines.
- * 
  * - Code blocks: Triple backticks are self-delimiting
  * - Images: Already visually distinct as inline elements
  * - Callouts: HTML-like tags are self-delimiting
  */
-function isSelfDelimitingParagraph(para: Paragraph): boolean {
+const isSelfDelimitingParagraph = (para: Paragraph): boolean => {
   return para.type === 'code_block' || para.type === 'callout' || isImageOnlyParagraph(para);
-}
+};
 
 /**
  * Determine the newline delimiter between two paragraphs.
@@ -58,7 +49,7 @@ function isSelfDelimitingParagraph(para: Paragraph): boolean {
  * - Text → List: double newline (list needs blank line before)
  * - List → Text: double newline
  */
-function getDelimiter(prev: Paragraph, current: Paragraph): string {
+const getDelimiter = (prev: Paragraph, current: Paragraph): string => {
   const prevIsListItem = isListItemParagraph(prev);
   const currIsListItem = isListItemParagraph(current);
   const prevIsSelfDelim = isSelfDelimitingParagraph(prev);
@@ -89,7 +80,7 @@ function getDelimiter(prev: Paragraph, current: Paragraph): string {
   
   // Everything else: double newline
   return '\n\n';
-}
+};
 
 /**
  * State for tracking ordered list numbering across nesting levels.
@@ -154,11 +145,11 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
 /**
  * Convert a paragraph to a Markdown line.
  */
-function paragraphToMarkdown(
+const paragraphToMarkdown = (
   para: Paragraph, 
   config: ConverterConfig,
   listState?: ListNumberingState
-): string | null {
+): string | null => {
   // Handle code blocks specially
   if (para.type === 'code_block') {
     const codeText = para.spans.map(s => s.text).join('');
@@ -260,12 +251,9 @@ function paragraphToMarkdown(
   const content = spansToMarkdown(para.spans, config);
   
   return prefix + content;
-}
+};
 
-/**
- * Get the Markdown prefix for a paragraph type.
- */
-function getPrefix(para: Paragraph, config: ConverterConfig): string {
+const getPrefix = (para: Paragraph, config: ConverterConfig): string => {
   const prefixes = config.mdPrefixes || {};
   
   switch (para.type) {
@@ -280,19 +268,13 @@ function getPrefix(para: Paragraph, config: ConverterConfig): string {
     default:
       return '';
   }
-}
+};
 
-/**
- * Convert styled spans to inline Markdown.
- */
-function spansToMarkdown(spans: StyledSpan[], config: ConverterConfig): string {
+const spansToMarkdown = (spans: StyledSpan[], config: ConverterConfig): string => {
   return spans.map(span => spanToMarkdown(span, config)).join('');
-}
+};
 
-/**
- * Convert a single span to Markdown.
- */
-function spanToMarkdown(span: StyledSpan, config: ConverterConfig): string {
+const spanToMarkdown = (span: StyledSpan, config: ConverterConfig): string => {
   let text = span.text;
   
   // Handle inline code first (don't apply other formatting inside code)
@@ -321,7 +303,7 @@ function spanToMarkdown(span: StyledSpan, config: ConverterConfig): string {
   }
   
   return text;
-}
+};
 
 /**
  * Normalize Markdown for comparison.
