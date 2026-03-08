@@ -75,7 +75,7 @@ async function convertToPngUsingCanvas(
       resolve(base64);
     };
     
-    img.onerror = (e) => {
+    img.onerror = (e: string | Event) => {
       log(`    Image load error: ${e}`);
       reject(new Error(`Failed to load image: ${e}`));
     };
