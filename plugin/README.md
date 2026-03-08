@@ -1,98 +1,63 @@
-# joplin-plugin-google-docs
+# Google Docs Sync - Plugin
 
-## Local credentials without shell env
+## Installation
 
-Place credentials next to the installed plugin so Joplin does not need to inherit shell environment variables.
+**From .jpl file:** In Joplin, go to **Settings > Plugins > Install from file** and select the `.jpl` from `publish/`.
 
-- Create these files in the plugin installation directory (e.g. `~/.config/joplin-desktop/plugins/io.github.albertbaubledeem.joplin.google-docs`):
-  - `.env` containing:
-    - `GOOGLE_CLIENT_ID=...`
-    - `GOOGLE_CLIENT_SECRET=...`
-    - `GOOGLE_REDIRECT_URI=http://localhost:3000/oauth2callback`
-    - `GOOGLE_SYNC_FOLDER_ID=...` (Drive folder to scan for Auto Pair)
-  - `.token.json` containing your OAuth tokens (same format as the `google-api-tests` token file)
-- Optional: You can continue to keep credentials under the repo at `google-api-tests/.env` and `google-api-tests/.token.json`. The plugin will fall back to those if files are not found in the plugin directory.
-- Optional: You may set `GOOGLE_TOKENS_PATH` in the process environment to override the token file path.
+**Development mode:** Set the path to this `plugin/` directory in **Settings > Plugins > Advanced > Development plugins**, then restart Joplin.
 
-## OAuth scopes (required)
+## Configuration
 
-Enable these APIs in your Google Cloud project and authorize with the following scopes:
+### Setup wizard
 
-- Drive API: `https://www.googleapis.com/auth/drive` (required to write appProperties on existing Docs and list files in the sync folder)
-- Docs API: `https://www.googleapis.com/auth/documents` (read/write Docs content)
+Run **Tools > Google Docs: Setup Wizard** for guided OAuth configuration. The wizard walks through:
+1. Creating a Google Cloud project
+2. Enabling required APIs
+3. Configuring OAuth consent screen
+4. Entering client credentials
+5. Authorizing the plugin
+6. Setting up a sync folder
 
-Re-auth steps:
+### Manual configuration
 
-1. Update OAuth consent screen to include the two scopes above, save and re-publish if needed.
-2. Delete the plugin’s `.token.json` (so a new token is issued with the updated scopes).
-3. Re-authorize using your existing token generation flow (or OAuth Playground) and place the new `.token.json` in the plugin install directory.
-4. Restart Joplin.
+Place credentials in the plugin data directory (`~/.config/joplin-desktop/plugins/io.github.albertbaubledeem.joplin.google-docs/`):
 
-## Mapping/state in plugin directory
+- `.env` with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
+- `.token.json` with OAuth tokens
 
-- You may place `mapping.json` and `changes.state.json` directly in the plugin directory. The plugin will use them if present.
-- If absent, it falls back to `google-api-tests/mapping.json` and `google-api-tests/changes.state.json` under the repo.
+Alternatively, enter Client ID and Client Secret in **Settings > Google Docs Sync**.
 
-## Running the poller command
+### OAuth scopes
 
-- Open Joplin Desktop
-- Tools → Command palette (Ctrl+P)
-- Run: "Google Docs Sync: Poll Once (log-only)"
-- View logs in Help → Toggle Developer Tools
+Enable these APIs in your Google Cloud project:
 
-## Auto Pair (appProperties-only mapping)
+- **Drive API** (`drive.file`) -- files created by the plugin or explicitly selected
+- **Docs API** (`documents`) -- read/write document content
+- **Cloud Storage API** (`devstorage.full_control`) -- optional, for image sync
 
-- Configure a Drive folder by setting `GOOGLE_SYNC_FOLDER_ID` in `.env` next to the installed plugin.
-- In Joplin: Tools → Command palette → "Google Docs Sync: Auto Pair Folder".
-- Behavior:
-  - For each Google Doc in the folder:
-    - If it has `appProperties.joplinNoteId`, ensure a local mapping for that note→file.
-    - If it has no `joplinNoteId`, create a new note (in the current note's notebook if one is selected, otherwise the first notebook), bind it, and write `joplinNoteId` back to Drive appProperties.
-  - No title matching is used; mapping is Drive appProperties + local mapping.json.
+## Building
 
-## Dev deploy (WSL → Windows profile)
-
-From `plugin/`:
-
-```bash
-# create your .env from the example (first time only)
-cp ENV.example .env
-# edit .env and set JOPLIN_PLUGIN_DEST to your plugins folder
-
-# deploy using .env (no hardcoded paths in repo)
-npm run deploy:wsl
-
-# or override destination explicitly
-npm run deploy:wsl -- "/path/to/your/plugins/io.github.albertbaubledeem.joplin.google-docs"
+```sh
+npm install
+npm run dist
 ```
 
-This does:
-- Build with `tsc`
-- Write `dist/manifest.json`
-- Copy `runtime/index.js` to `<DEST>/index.js` (runtime-first entry that registers commands)
-- Copy `dist/*`, root `manifest.json`, and `dist/manifest.json` to `<DEST>/`
-- Install production-only `node_modules` via `npm ci --omit=dev` and copy them to `<DEST>/node_modules`
-- If present, copy `google-api-tests/config/md-mapping.json` to `<DEST>/config/md-mapping.json`
+This compiles TypeScript, bundles all dependencies via webpack, and creates a `.jpl` archive in `publish/`.
 
-After copying, restart Joplin Desktop.
+### WSL deployment
 
-## What gets installed (destination folder)
+```sh
+npm run deploy:wsl
+```
 
-Required at `<DEST>` (e.g., `A:\JoplinProfile\plugins\io.github.albertbaubledeem.joplin.google-docs`):
-- `index.js` (from `runtime/index.js`, uses the runtime-first pattern)
-- `manifest.json`
-- `dist/` (compiled modules: `index.js`, `poller.js`, `mapping.js`, `converters/`, `services/`, `commands/`, `providers/`, plus `manifest.json`)
-- `node_modules/` (production-only; includes `googleapis`)
-- `config/md-mapping.json` (optional, mapping-driven formatting config)
-- `.env` and `.token.json` (credentials, if you choose to place them next to the plugin)
+Copies the built plugin to the Joplin plugins directory configured in `.env` (`JOPLIN_PLUGIN_DEST`).
+
+## Formatting configuration
+
+User-customizable formatting lives in `config/md-mapping.json`. The plugin copies a default config to its data directory on first run. Edit the copy there to customize heading styles, code block appearance, and list markers.
 
 ## Troubleshooting
 
-- Commands not visible after deploy:
-  - Quit and restart Joplin Desktop
-  - Delete plugin cache folder: `A:\JoplinProfile\cache\io.github.albertbaubledeem.joplin.google-docs`
-  - Ensure `<DEST>/index.js` exists and `manifest.json` has `"main": "index.js"` and `"platforms": ["desktop"]`
-- `Cannot find module 'googleapis'` in a command:
-  - Confirm `<DEST>/node_modules/googleapis` exists (deploy installs prod-only deps)
-- Permission errors when copying to Windows drive from WSL:
-  - The deploy script uses plain `cp` (no `chmod`/`install`), which avoids drvfs permission issues
+- **Commands not visible:** Quit and restart Joplin completely (File > Quit). Delete the plugin cache folder if needed.
+- **Auth errors after token expiry:** Run **Tools > Google Docs: Re-authorize** or delete `.token.json` and re-run the setup wizard.
+- **Push fails with index errors:** Ensure you're running the latest build (`npm run dist`). List index calculation has been fixed for documents with multiple nested lists.
