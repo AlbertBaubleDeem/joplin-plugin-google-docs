@@ -41,10 +41,6 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
   let files = await listDocs(search);
   const dId = 'gdocsDrivePicker-' + Date.now();
   const d = await j.views.dialogs.create(dId);
-  
-  // setFitToContent is not in the stable API types but available at runtime
-  const dialogs = j.views.dialogs as { setFitToContent?: (id: string, fit: boolean) => Promise<void> };
-  await dialogs.setFitToContent?.(d, false);
 
   while (true) {
     // Format the modified time nicely
@@ -74,8 +70,9 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     // - Enter key submits the first button in the list
     // - Limited CSS support, but CSS variables from theme are available
     const dialogHtml = `
+      <style>#joplin-plugin-content { width: max-content; min-width: 720px; }</style>
       <div style="padding:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
-        <div style="padding:20px; width:90%; max-width:900px;">
+        <div style="padding:20px; width:90%; max-width:900px; min-width:720px; box-sizing:border-box;">
           <form name="f" style="margin:0;" onsubmit="return false;">
             <h2 style="margin:0 0 20px 0; font-size:20px; color:var(--joplin-color);">Import Google Docs</h2>
           
@@ -126,19 +123,17 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
         </div>
       </div>
     `;
-    
+
     await j.views.dialogs.setHtml(d, dialogHtml);
-    
-    // Joplin limitation: buttons are static, can't be dynamically updated
-    // Use 'ok' as the search button ID to make it a submit button that Enter will trigger
+
     await j.views.dialogs.setButtons(d, [
       { id: 'ok', title: 'Search' },
       { id: 'import', title: 'Import Selected' },
       { id: 'cancel' }
     ]);
-    
+
     const r = await j.views.dialogs.open(d);
-    
+
     if (!r || r.id === 'cancel') {
       return { selected: [], created: 0, bound: 0 };
     }
