@@ -138,54 +138,105 @@ export type TabSelectionResult = {
   usedTabTitle?: string;
 };
 
+/** One tab's id and title, in UI order (flattened, including child tabs). */
+export type FlatTabInfo = { tabId: string; title: string };
+
+type RawTabWithChildren = {
+  tabProperties?: { tabId?: string; title?: string };
+  id?: string;
+  name?: string;
+  title?: string;
+  childTabs?: RawTabWithChildren[];
+};
+
+/**
+ * Fetches the document with includeTabsContent=true and returns a flat list of all tabs
+ * (top-level and nested childTabs) with tabId and title. Use this to iterate when importing
+ * a multi-tab doc as a notebook.
+ */
+export async function getAllTabInfos(docsClient: any, documentId: string): Promise<FlatTabInfo[]> {
+  const out: FlatTabInfo[] = [];
+  function addTab(t: RawTabWithChildren) {
+    const tabId = t.tabProperties?.tabId || t.id || '';
+    const title = (t.tabProperties?.title || t.name || t.title || '').trim() || 'Untitled';
+    if (tabId) out.push({ tabId, title });
+    for (const c of t.childTabs || []) addTab(c);
+  }
+  try {
+    const res = await docsClient.documents.get({ documentId, includeTabsContent: true });
+    const tabs = Array.isArray(res?.data?.tabs) ? res.data.tabs : [];
+    for (const t of tabs as RawTabWithChildren[]) addTab(t);
+  } catch (_) {
+    // ignore
+  }
+  return out;
+}
+
 // Given a Google Docs API client, fetch the document with includeTabsContent=true,
 // pick the desired tab (by tabId when provided, otherwise the first tab), and
 // return a normalized DocLike with body.content pointing to that tab's content.
 // Falls back to a plain fetch when tabs are not available.
 // Always includes inlineObjects for image roundtrip support.
+/** Flatten tabs and childTabs, then find tab by tabId (or return first tab in doc order). */
+function findTabByTabId(tabs: RawTabWithChildren[] | undefined, tabId: string | undefined): RawTabWithChildren | undefined {
+  if (!Array.isArray(tabs) || tabs.length === 0) return undefined;
+  const first = tabs[0];
+  if (!tabId) return first;
+  for (const t of tabs) {
+    const id = t.tabProperties?.tabId || t.id;
+    if (id === tabId) return t;
+    const inChild = findTabByTabId(t.childTabs as RawTabWithChildren[] | undefined, tabId);
+    if (inChild) return inChild;
+  }
+  return first; // tabId not found, fallback to first
+}
+
+/** Count all tabs including nested (for tabCount in result). */
+function countTabs(tabs: RawTabWithChildren[] | undefined): number {
+  if (!Array.isArray(tabs)) return 0;
+  let n = 0;
+  for (const t of tabs) {
+    n += 1;
+    n += countTabs(t.childTabs as RawTabWithChildren[] | undefined);
+  }
+  return n;
+}
+
 export async function buildConversionDocFromTabs(docsClient: any, documentId: string, opts?: { tabId?: string }): Promise<TabSelectionResult> {
   let tabCount = 0;
   let usedTabTitle = '';
   try {
     const tabsDoc = await docsClient.documents.get({ documentId, includeTabsContent: true });
     const tabs = Array.isArray(tabsDoc?.data?.tabs) ? tabsDoc.data.tabs : [];
-    tabCount = tabs.length;
+    tabCount = countTabs(tabs as RawTabWithChildren[]);
     if (tabCount > 0) {
-      // Tab shape varies across API versions -- try multiple property paths
-      type RawTab = Record<string, unknown>;
-      const tabsTyped = tabs as RawTab[];
-      let picked: RawTab | undefined;
-      if (opts?.tabId) {
-        picked = tabsTyped.find(t => {
-          const props = t.tabProperties as { tabId?: string } | undefined;
-          return props?.tabId === opts.tabId || t.id === opts.tabId;
-        });
+      const tabsTyped = tabs as RawTabWithChildren[];
+      const picked = findTabByTabId(tabsTyped, opts?.tabId);
+      if (picked) {
+        // API tab shape: documentTab, document, body, tab, inlineObjects, lists (vary by version)
+        const p = picked as Record<string, unknown>;
+        const dt = p.documentTab as { body?: { content?: unknown[] }; inlineObjects?: Record<string, unknown>; lists?: Record<string, unknown> } | undefined;
+        const dc = p.document as { body?: { content?: unknown[] }; inlineObjects?: Record<string, unknown>; lists?: Record<string, unknown> } | undefined;
+        const pb = p.body as { content?: unknown[] } | undefined;
+        const pt = p.tab as { body?: { content?: unknown[] } } | undefined;
+        const contentArr = dt?.body?.content || dc?.body?.content || pb?.content || pt?.body?.content || [];
+
+        const tabInlineObjects = dt?.inlineObjects || dc?.inlineObjects || (p.inlineObjects as Record<string, unknown>) || {};
+        const docInlineObjects = tabsDoc?.data?.inlineObjects || {};
+        const inlineObjects = { ...docInlineObjects, ...tabInlineObjects };
+
+        const tabLists = dt?.lists || dc?.lists || (p.lists as Record<string, unknown>) || {};
+        const docLists = tabsDoc?.data?.lists || {};
+        const lists = { ...docLists, ...tabLists };
+
+        const props = (picked as RawTabWithChildren).tabProperties as { title?: string } | undefined;
+        usedTabTitle = props?.title || (p.name as string) || (p.title as string) || '';
+        return {
+          convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects, lists },
+          tabCount,
+          usedTabTitle,
+        };
       }
-      if (!picked) picked = tabsTyped[0];
-
-      // Resolve body content from whichever nesting the API used
-      const dt = picked.documentTab as { body?: { content?: unknown[] }; inlineObjects?: Record<string, unknown>; lists?: Record<string, unknown> } | undefined;
-      const dc = picked.document as { body?: { content?: unknown[] }; inlineObjects?: Record<string, unknown>; lists?: Record<string, unknown> } | undefined;
-      const pb = picked.body as { content?: unknown[] } | undefined;
-      const pt = picked.tab as { body?: { content?: unknown[] } } | undefined;
-      const contentArr = dt?.body?.content || dc?.body?.content || pb?.content || pt?.body?.content || [];
-
-      // Merge inline objects and lists from both tab and document level (tab takes precedence)
-      const tabInlineObjects = dt?.inlineObjects || dc?.inlineObjects || (picked.inlineObjects as Record<string, unknown>) || {};
-      const docInlineObjects = tabsDoc?.data?.inlineObjects || {};
-      const inlineObjects = { ...docInlineObjects, ...tabInlineObjects };
-
-      const tabLists = dt?.lists || dc?.lists || (picked.lists as Record<string, unknown>) || {};
-      const docLists = tabsDoc?.data?.lists || {};
-      const lists = { ...docLists, ...tabLists };
-
-      const props = picked.tabProperties as { title?: string } | undefined;
-      usedTabTitle = props?.title || (picked.name as string) || (picked.title as string) || '';
-      return { 
-        convertDoc: { title: tabsDoc?.data?.title, body: { content: contentArr }, inlineObjects, lists }, 
-        tabCount, 
-        usedTabTitle 
-      };
     }
   } catch (_) {
     // ignore and fallback

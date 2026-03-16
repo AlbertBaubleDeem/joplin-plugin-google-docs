@@ -145,6 +145,17 @@ export async function createNote(
 }
 
 /**
+ * Creates a new folder (notebook).
+ *
+ * @param j - Joplin API instance
+ * @param title - Folder title
+ * @returns Promise resolving to the created folder data
+ */
+export async function createFolder(j: JoplinApi, title: string): Promise<FolderData> {
+  return j.data.post(['folders'], null, { title });
+}
+
+/**
  * Gets the currently selected folder.
  * 
  * @param j - Joplin API instance
