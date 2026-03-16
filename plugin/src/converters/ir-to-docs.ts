@@ -7,7 +7,7 @@
  */
 
 import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange, ListRange } from './types';
-import { getMonoFont, getElementSpacing } from './config';
+import { getMonoFont, getElementSpacing, getCodeForegroundColor, getCodeFontSize, parseHexToRgb, type CodeForegroundRgb } from './config';
 import { debug } from './debug';
 import { getCalloutDefinition, calloutByType } from './callout-config';
 
@@ -369,35 +369,45 @@ const getParagraphStyle = (para: Paragraph): string => {
   }
 };
 
+/** Options for style building (installDir and optional code font color override) */
+export type IrToDocsStyleOpts = { installDir?: string; codeFontColor?: string };
+
 /**
  * Build Google Docs API batchUpdate requests from plain text and ranges.
  * 
  * @param plainWithRanges - The plain text and style ranges
- * @param installDir - Optional install directory for config
+ * @param opts - Optional installDir and codeFontColor (hex) override
  * @returns Array of Docs API request objects
  */
 export function buildDocsRequests(
   plainWithRanges: PlainTextWithRanges,
-  installDir?: string
+  opts?: IrToDocsStyleOpts | string
 ): any[] {
+  const installDir = typeof opts === 'string' ? opts : opts?.installDir;
+  const codeRgb: CodeForegroundRgb | null =
+    (typeof opts === 'object' && opts?.codeFontColor != null
+      ? parseHexToRgb(opts.codeFontColor)
+      : null) ?? getCodeForegroundColor(installDir);
+  const codeFontSize = getCodeFontSize(installDir);
+
   const { paraRanges, textRanges, listRanges } = plainWithRanges;
   const monoFont = getMonoFont(installDir);
-  
-  debug('ir-to-docs', 'buildDocsRequests', { paraRanges, textRanges, listRanges, monoFont });
-  
+
+  debug('ir-to-docs', 'buildDocsRequests', { paraRanges, textRanges, listRanges, monoFont, hasCodeColor: !!codeRgb, codeFontSize });
+
   // Build paragraph style requests
   const paraReqs = paraRanges
     .filter(r => r.end > r.start)
     .map(r => buildParagraphStyleRequest(r, monoFont, installDir));
-  
+
   // Build text style requests
   const textReqs = textRanges
     .filter(r => r.end > r.start)
-    .flatMap(r => buildTextStyleRequests(r, monoFont));
-  
+    .flatMap(r => buildTextStyleRequests(r, monoFont, codeRgb, codeFontSize));
+
   // Build list bullet requests
   const listReqs = buildListBulletRequests(listRanges || []);
-  
+
   return [...paraReqs, ...textReqs, ...listReqs];
 }
 
@@ -599,17 +609,17 @@ const buildParagraphStyleRequest = (range: ParaRange, monoFont: string, installD
 
 /**
  * Build text style requests for a text range.
- * Returns multiple requests if needed (one for bold/italic/link, one for font).
+ * Returns multiple requests if needed (one for bold/italic/link, one for font/color/size).
  */
-const buildTextStyleRequests = (range: TextRange, monoFont: string): any[] => {
+const buildTextStyleRequests = (range: TextRange, monoFont: string, codeRgb: CodeForegroundRgb | null, codeFontSize: number | null): any[] => {
   const requests: any[] = [];
   const startIndex = range.start + 1;
   const endIndex = range.end + 1;
-  
+
   // Build style request for bold/italic/link
   const fieldList: string[] = [];
   const textStyle: any = {};
-  
+
   if (range.bold) {
     fieldList.push('bold');
     textStyle.bold = true;
@@ -622,7 +632,7 @@ const buildTextStyleRequests = (range: TextRange, monoFont: string): any[] => {
     fieldList.push('link');
     textStyle.link = { url: range.linkUrl };
   }
-  
+
   if (fieldList.length > 0) {
     requests.push({
       updateTextStyle: {
@@ -632,14 +642,24 @@ const buildTextStyleRequests = (range: TextRange, monoFont: string): any[] => {
       },
     });
   }
-  
-  // Add font request for code
+
+  // Add font (and optional color/size) request for code
   if (range.codeMono) {
+    const codeStyle: any = { weightedFontFamily: { fontFamily: monoFont } };
+    let codeFields = 'weightedFontFamily';
+    if (codeRgb) {
+      codeStyle.foregroundColor = { color: { rgbColor: codeRgb } };
+      codeFields += ',foregroundColor';
+    }
+    if (codeFontSize) {
+      codeStyle.fontSize = { magnitude: codeFontSize, unit: 'PT' };
+      codeFields += ',fontSize';
+    }
     requests.push({
       updateTextStyle: {
         range: { startIndex, endIndex },
-        textStyle: { weightedFontFamily: { fontFamily: monoFont } },
-        fields: 'weightedFontFamily',
+        textStyle: codeStyle,
+        fields: codeFields,
       },
     });
   }
@@ -664,24 +684,43 @@ const buildTextStyleRequests = (range: TextRange, monoFont: string): any[] => {
 };
 
 /**
- * Build monospace font requests for code block paragraphs.
+ * Build monospace font (and optional color) requests for code block paragraphs.
  * Call this after buildDocsRequests for additional code block styling.
  */
 export function buildCodeBlockFontRequests(
   paraRanges: ParaRange[],
-  installDir?: string
+  opts?: IrToDocsStyleOpts | string
 ): any[] {
+  const installDir = typeof opts === 'string' ? opts : opts?.installDir;
+  const codeRgb: CodeForegroundRgb | null =
+    (typeof opts === 'object' && opts?.codeFontColor != null
+      ? parseHexToRgb(opts.codeFontColor)
+      : null) ?? getCodeForegroundColor(installDir);
+  const codeFontSize = getCodeFontSize(installDir);
+
   const monoFont = getMonoFont(installDir);
-  
+
   return paraRanges
     .filter(r => r.style === 'CODEBLOCK' && r.end > r.start)
-    .map(r => ({
-      updateTextStyle: {
-        range: { startIndex: r.start + 1, endIndex: r.end + 1 },
-        textStyle: { weightedFontFamily: { fontFamily: monoFont } },
-        fields: 'weightedFontFamily',
-      },
-    }));
+    .map(r => {
+      const textStyle: any = { weightedFontFamily: { fontFamily: monoFont } };
+      let fields = 'weightedFontFamily';
+      if (codeRgb) {
+        textStyle.foregroundColor = { color: { rgbColor: codeRgb } };
+        fields += ',foregroundColor';
+      }
+      if (codeFontSize) {
+        textStyle.fontSize = { magnitude: codeFontSize, unit: 'PT' };
+        fields += ',fontSize';
+      }
+      return {
+        updateTextStyle: {
+          range: { startIndex: r.start + 1, endIndex: r.end + 1 },
+          textStyle,
+          fields,
+        },
+      };
+    });
 }
 
 

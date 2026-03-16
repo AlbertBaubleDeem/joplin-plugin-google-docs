@@ -4,7 +4,9 @@
   "code": {
     "inline": { "marker": "`" },
     "block": { "detect": true, "marker": "```" },
-    "monoFont": "Roboto Mono"
+    "monoFont": "Roboto Mono",
+    "foregroundColor": "",
+    "fontSize": 0
   },
   "mdPrefixes": {
     "TITLE": "# ",

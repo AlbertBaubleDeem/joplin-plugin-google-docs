@@ -187,15 +187,18 @@ const adjustListRangesForImages = (
 export function buildDocsStyleUpdateRequests(
   paraRanges: ParaRange[],
   textRanges: TextRange[],
-  opts?: { installDir?: string; listRanges?: ListRange[] }
+  opts?: { installDir?: string; listRanges?: ListRange[]; codeFontColor?: string }
 ): any[] {
   // Build requests from ranges (including list ranges)
   const plainWithRanges = { plain: '', paraRanges, textRanges, listRanges: opts?.listRanges };
-  const requests = buildDocsRequests(plainWithRanges, opts?.installDir);
-  
+  const styleOpts = opts?.installDir != null || opts?.codeFontColor != null
+    ? { installDir: opts.installDir, codeFontColor: opts.codeFontColor }
+    : opts?.installDir;
+  const requests = buildDocsRequests(plainWithRanges, styleOpts);
+
   // Add code block font requests
-  const codeBlockFonts = buildCodeBlockFontRequests(paraRanges, opts?.installDir);
-  
+  const codeBlockFonts = buildCodeBlockFontRequests(paraRanges, styleOpts);
+
   return [...requests, ...codeBlockFonts];
 }
 

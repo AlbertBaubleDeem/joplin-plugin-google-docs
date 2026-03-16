@@ -121,6 +121,10 @@ export type ConverterConfig = {
     };
     /** Monospace font for code (default: 'Roboto Mono') */
     monoFont?: string;
+    /** Text color for code in Google Docs (hex, e.g. '#333333'). Omit for Docs default. */
+    foregroundColor?: string;
+    /** Font size for code in Google Docs (points, e.g. 10). Omit or 0 for Docs default. */
+    fontSize?: number;
   };
   /** Custom heading mappings */
   headings?: Record<string, string>;

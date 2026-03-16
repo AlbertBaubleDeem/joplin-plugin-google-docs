@@ -215,6 +215,55 @@ export function getMonoFont(installDir?: string): string {
   return config.code?.monoFont || 'Roboto Mono';
 }
 
+/** RGB in 0–1 range for Google Docs API */
+export type CodeForegroundRgb = { red: number; green: number; blue: number };
+
+/**
+ * Parse a hex color to RGB 0–1. Supports #RGB and #RRGGBB.
+ * Returns null if invalid or empty.
+ */
+export function parseHexToRgb(hex: string | undefined | null): CodeForegroundRgb | null {
+  if (!hex || typeof hex !== 'string') return null;
+  const s = hex.trim().replace(/^#/, '');
+  if (s.length === 3) {
+    const r = parseInt(s[0] + s[0], 16);
+    const g = parseInt(s[1] + s[1], 16);
+    const b = parseInt(s[2] + s[2], 16);
+    if (!Number.isNaN(r + g + b)) {
+      return { red: r / 255, green: g / 255, blue: b / 255 };
+    }
+  }
+  if (s.length === 6) {
+    const r = parseInt(s.slice(0, 2), 16);
+    const g = parseInt(s.slice(2, 4), 16);
+    const b = parseInt(s.slice(4, 6), 16);
+    if (!Number.isNaN(r + g + b)) {
+      return { red: r / 255, green: g / 255, blue: b / 255 };
+    }
+  }
+  return null;
+}
+
+/**
+ * Get code foreground color from config (from md-mapping.json).
+ * Returns RGB in 0–1 or null if not set.
+ */
+export function getCodeForegroundColor(installDir?: string): CodeForegroundRgb | null {
+  const config = loadConfig(installDir);
+  return parseHexToRgb(config.code?.foregroundColor);
+}
+
+/**
+ * Get code font size from config (from md-mapping.json).
+ * Returns size in points or null if not set or invalid (use Docs default).
+ */
+export function getCodeFontSize(installDir?: string): number | null {
+  const config = loadConfig(installDir);
+  const n = config.code?.fontSize;
+  if (typeof n !== 'number' || n <= 0) return null;
+  return n;
+}
+
 /**
  * Get spacing configuration for an element type.
  * 
