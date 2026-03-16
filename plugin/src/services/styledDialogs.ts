@@ -42,15 +42,15 @@ export async function showInfoDialog(j: any, options: InfoDialogOptions): Promis
     : '';
 
   const dialogHtml = `
-    <style>#joplin-plugin-content { width: max-content; }</style>
-    <div style="padding: 20px; min-width: 420px; box-sizing: border-box;">
+    <style>#joplin-plugin-content { width: max-content; max-width: 420px; }</style>
+    <div style="padding: 20px; min-width: 320px; max-width: 420px; box-sizing: border-box;">
       <div style="text-align: center; margin-bottom: 16px;">
         <span style="font-size: 36px;">${icon}</span>
       </div>
       <h2 style="margin: 0 0 12px 0; color: var(--joplin-color); text-align: center;">
         ${escapeHtml(title)}
       </h2>
-      <p style="line-height: 1.6; color: var(--joplin-color); text-align: center;">
+      <p style="line-height: 1.6; color: var(--joplin-color); text-align: center; max-width: 420px; word-wrap: break-word;">
         ${escapeHtml(message)}
       </p>
       ${detailsHtml}

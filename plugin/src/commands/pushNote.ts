@@ -48,8 +48,10 @@ type DocBody = {
 };
 
 type DocTab = {
+  tabProperties?: { tabId?: string };
   documentTab?: { body?: DocBody };
   body?: DocBody;
+  childTabs?: DocTab[];
 };
 
 type DocResponseData = {
@@ -65,15 +67,27 @@ type DocState = {
   revisionId: string;
 };
 
+/** Flatten tabs and childTabs, return the tab whose tabProperties.tabId matches, or first tab. */
+function findTabById(tabs: DocTab[] | undefined, tabId: string | undefined): DocTab | undefined {
+  if (!Array.isArray(tabs) || tabs.length === 0) return undefined;
+  for (const t of tabs) {
+    if (t.tabProperties?.tabId === tabId) return t;
+    const inChild = findTabById(t.childTabs, tabId);
+    if (inChild) return inChild;
+  }
+  return tabs[0];
+}
+
 /**
- * Fetches a Google Doc and extracts its body content, preferring the first tab
- * when tabs are present. Returns the body, content array, end index, and revision ID.
+ * Fetches a Google Doc and extracts body content for the given tab (or first tab).
+ * Returns the body, content array, end index, and revision ID.
  */
 const getDocState = async (
   docs: SyncContext['docs'],
   fileId: string,
-  includeTabs = true
+  opts: { includeTabs?: boolean; tabId?: string } = {}
 ): Promise<DocState> => {
+  const { includeTabs = true, tabId } = opts;
   const res = await docs.documents.get({
     documentId: fileId,
     ...(includeTabs ? { includeTabsContent: true } : {}),
@@ -83,8 +97,8 @@ const getDocState = async (
 
   let body: DocBody = data.body || {};
   if (data.tabs?.length) {
-    const firstTab = data.tabs[0];
-    body = firstTab?.documentTab?.body || firstTab?.body || body;
+    const tab = tabId ? findTabById(data.tabs, tabId) : data.tabs[0];
+    body = tab?.documentTab?.body || tab?.body || body;
   }
 
   const content = Array.isArray(body.content) ? body.content : [];
@@ -95,12 +109,29 @@ const getDocState = async (
   return { body, content, endIndex, revisionId };
 };
 
+/** Add tabId to every request's location or range so batchUpdate targets the correct tab. */
+function withTabId(requests: unknown[], tabId: string | undefined): unknown[] {
+  if (!tabId) return requests;
+  return requests.map((req: any) => {
+    if (!req || typeof req !== 'object') return req;
+    const out = { ...req };
+    if (out.range && typeof out.range === 'object') {
+      out.range = { ...out.range, tabId };
+    }
+    if (out.location && typeof out.location === 'object') {
+      out.location = { ...out.location, tabId };
+    }
+    return out;
+  });
+}
+
 async function executePush(
   ctx: SyncContext,
   j: any,
   noteId: string,
   fileId: string,
-  _dataDir: string
+  _dataDir: string,
+  tabId: string | undefined
 ): Promise<{ newRevisionId: string }> {
   const { google, auth, docs, installDir } = ctx;
 
@@ -108,14 +139,12 @@ async function executePush(
   const mdRaw: string = String(note.body ?? '');
 
   // Check if GCS is configured BEFORE conversion
-  // This determines whether we process images or preserve them as markdown
   const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
   const processImages_flag = !!gcsBucketName;
 
-  // When GCS is not configured, images are preserved as markdown text (no placeholder extraction)
-  const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, { 
-    installDir, 
-    processImages: processImages_flag 
+  const { plain, paraRanges, textRanges, imageRanges, listRanges } = convertMarkdownToPlainAndStyles(mdRaw, {
+    installDir,
+    processImages: processImages_flag,
   });
 
   let uploadedObjects: GCSUploadResult[] = [];
@@ -134,15 +163,15 @@ async function executePush(
     console.warn(`[pushNote] Note has ${imageRanges.length} images but GCS is not configured. Images will not be synced.`);
   }
 
-  // Fetch current doc state to get revision ID and content end position
-  const { endIndex, revisionId } = await getDocState(docs, fileId);
+  const docStateOpts = { includeTabs: true, tabId };
+  const { endIndex, revisionId } = await getDocState(docs, fileId, docStateOpts);
 
-  const requests: unknown[] = [];
-  // Avoid empty delete range (start==end). For empty docs endIndex is often 2.
+  let requests: unknown[] = [];
   if (endIndex > 2) {
     requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
   }
   requests.push({ insertText: { location: { index: 1 }, text: plain } });
+  requests = withTabId(requests, tabId);
 
   await docs.documents.batchUpdate({
     documentId: fileId,
@@ -152,12 +181,9 @@ async function executePush(
     },
   });
 
-  // Re-fetch to get post-insert state for bullet clearing and style application
-  let afterState = await getDocState(docs, fileId);
+  let afterState = await getDocState(docs, fileId, docStateOpts);
   let newRevisionId = afterState.revisionId;
 
-  // Find the last PARAGRAPH element (skip section breaks and other structural elements)
-  // to get the true end of the writable body segment
   let endIndexAfterInsert = 1;
   for (let i = afterState.content.length - 1; i >= 0; i--) {
     if (afterState.content[i].paragraph) {
@@ -169,52 +195,46 @@ async function executePush(
     endIndexAfterInsert = afterState.endIndex;
   }
 
-  // Clear all existing bullet formatting before applying new styles
-  // This prevents list formatting from persisting across pushes
   if (endIndexAfterInsert > 2) {
+    const bulletClearReqs = withTabId([{
+      deleteParagraphBullets: {
+        range: { startIndex: 1, endIndex: endIndexAfterInsert },
+      },
+    }], tabId);
     await docs.documents.batchUpdate({
       documentId: fileId,
-      requestBody: {
-        requests: [{
-          deleteParagraphBullets: {
-            range: { startIndex: 1, endIndex: endIndexAfterInsert },
-          },
-        }],
-      },
+      requestBody: { requests: bulletClearReqs },
     });
   }
 
-  // Apply paragraph and inline styles (WITHOUT list bullets)
   const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
   if (styleReqs.length) {
-    await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: styleReqs } });
+    await docs.documents.batchUpdate({
+      documentId: fileId,
+      requestBody: { requests: withTabId(styleReqs, tabId) },
+    });
   }
 
-  // Apply list bullets in a SEPARATE batchUpdate call to avoid interactions
-  // with paragraph styles. List ranges are already adjusted for tab consumption.
   if (listRanges.length > 0) {
     const bulletReqs = buildListBulletRequests(listRanges);
     if (bulletReqs.length) {
-      await docs.documents.batchUpdate({ documentId: fileId, requestBody: { requests: bulletReqs } });
+      await docs.documents.batchUpdate({
+        documentId: fileId,
+        requestBody: { requests: withTabId(bulletReqs, tabId) },
+      });
     }
   }
 
-  // Insert images if GCS upload succeeded
-  const afterTextState = await getDocState(docs, fileId, false);
   if (uploadedObjects.length > 0 && resourceIdToUrl.size > 0) {
     const { requests: imageRequests } = buildImageInsertRequests(imageRanges, resourceIdToUrl, 0);
-
     if (imageRequests.length > 0) {
       await docs.documents.batchUpdate({
         documentId: fileId,
-        requestBody: { requests: imageRequests },
+        requestBody: { requests: withTabId(imageRequests, tabId) },
       });
-
-      afterState = await getDocState(docs, fileId, false);
+      afterState = await getDocState(docs, fileId, { includeTabs: false });
       newRevisionId = afterState.revisionId;
     }
-
-    // Clean up GCS public access
     const storage = google.storage({ version: 'v1', auth });
     await cleanupImageAccess(storage, gcsBucketName!, uploadedObjects);
   }
@@ -228,20 +248,22 @@ async function executePush(
 async function updateMappingAfterPush(
   ctx: SyncContext,
   noteId: string,
-  fileId: string,
+  binding: NoteBinding,
   newRevisionId: string
 ): Promise<void> {
   const { dataDir } = ctx;
   const mapping = loadMapping(dataDir);
 
-  const nb: NoteBinding = mapping.notes[noteId] || {};
-  nb.fileId = fileId;
+  const nb: NoteBinding = { ...binding };
+  nb.fileId = binding.fileId;
+  nb.tabId = binding.tabId;
   nb.lastKnownRevisionId = newRevisionId;
   nb.lastSyncTs = Date.now();
   mapping.notes[noteId] = nb;
   saveMapping(dataDir, mapping);
 
   // Update Drive appProperties via provider (best-effort)
+  const fileId = binding.fileId!;
   try {
     await ctx.provider.updateAppProperties(fileId, {
       lastKnownRevisionId: newRevisionId,
@@ -273,8 +295,8 @@ export async function pushNote(params: Params): Promise<PushResult> {
   if (!binding?.fileId) throw new Error('Note is not bound to a Google Doc.');
   const fileId = binding.fileId;
 
-  const result = await executePush(ctx, j, noteId, fileId, dataDir);
-  await updateMappingAfterPush(ctx, noteId, fileId, result.newRevisionId);
+  const result = await executePush(ctx, j, noteId, fileId, dataDir, binding.tabId);
+  await updateMappingAfterPush(ctx, noteId, binding, result.newRevisionId);
 
   return { noteId, fileId, newRevisionId: result.newRevisionId };
 }

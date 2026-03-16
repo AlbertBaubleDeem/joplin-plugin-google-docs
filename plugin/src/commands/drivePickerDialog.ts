@@ -5,10 +5,10 @@
  */
 
 import { createSyncContext } from '../services/syncContext';
-import { bindNote } from '../mapping';
-import { buildConversionDocFromTabs } from '../structure';
+import { bindNote, loadMapping, saveMapping } from '../mapping';
+import { buildConversionDocFromTabs, getAllTabInfos } from '../structure';
 import { convertDocumentToMarkdown } from '../converters';
-import { createNote, determineTargetFolder } from '../services/noteOperations';
+import { createNote, createFolder, determineTargetFolder } from '../services/noteOperations';
 import { showWarningDialog, showSuccessDialog } from '../services/styledDialogs';
 
 type Params = { j: any; installDir: string; dataDir: string };
@@ -176,53 +176,87 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
     // Determine target folder (current notebook or fallback)
     const targetFolderId = await determineTargetFolder(j);
     
-    // Build inverse map fileId -> noteId from existing mapping
-    const mapping = (await import('../mapping')).loadMapping(dataDir);
-    const fileIdToNoteId: Record<string, string> = {};
-    for (const [nid, b] of Object.entries(mapping.notes || {})) {
-      if (b?.fileId) fileIdToNoteId[b.fileId] = nid;
+    // Build set of fileIds already bound (any note bound to a fileId skips that doc)
+    const mapping = loadMapping(dataDir);
+    const boundFileIds = new Set<string>();
+    for (const b of Object.values(mapping.notes || {})) {
+      if (b?.fileId) boundFileIds.add(b.fileId);
     }
-    
+
     const skipped: string[] = [];
     const imported: string[] = [];
-    
+    let multiTabCount = 0;
+
     for (const fid of fids) {
-      if (fileIdToNoteId[fid]) {
+      if (boundFileIds.has(fid)) {
         try {
-          const ex = await j.data.get(['notes', fileIdToNoteId[fid]], { fields: ['id', 'title'] });
-          skipped.push(`"${ex.title || 'Untitled'}" (already linked)`);
+          const noteId = Object.entries(mapping.notes || {}).find(([, b]) => b?.fileId === fid)?.[0];
+          const ex = noteId ? await j.data.get(['notes', noteId], { fields: ['id', 'title'] }) : null;
+          skipped.push(`"${ex?.title || 'Untitled'}" (already linked)`);
         } catch (_) {
           skipped.push(`Document ${fid} (already linked)`);
         }
         continue;
       }
-      
+
       const meta = files.find(f => f.id === fid);
-      const title = (meta?.name && String(meta.name)) || 'Imported Document';
-      
+      const docTitle = (meta?.name && String(meta.name)) || 'Imported Document';
+
       try {
-        const { convertDoc } = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
-        const md = convertDocumentToMarkdown(convertDoc, { installDir, mergeCodeBlocksAcrossBlankLine: true });
-        const newNote = await createNote(j, title, md, targetFolderId);
-        bindNote(dataDir, newNote.id, { fileId: fid });
-        
-        try { 
-          await ctx.provider.updateAppProperties(fid, { joplinNoteId: newNote.id }); 
-        } catch (_) {
-          // Ignore appProperties errors (likely due to permissions)
+        const tabInfos = await getAllTabInfos(ctx.docs, fid);
+
+        if (tabInfos.length <= 1) {
+          // Single-tab or no tabs: one note, first tab
+          const { convertDoc } = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
+          const md = convertDocumentToMarkdown(convertDoc, { installDir, mergeCodeBlocksAcrossBlankLine: true });
+          const newNote = await createNote(j, docTitle, md, targetFolderId);
+          bindNote(dataDir, newNote.id, { fileId: fid });
+          try {
+            await ctx.provider.updateAppProperties(fid, { joplinNoteId: newNote.id });
+          } catch (_) {
+            // Ignore appProperties errors
+          }
+          created += 1;
+          bound += 1;
+          imported.push(docTitle);
+        } else {
+          // Multi-tab: create notebook and one note per tab
+          const notebook = await createFolder(j, docTitle);
+          const noteIds: string[] = [];
+          for (const tab of tabInfos) {
+            const { convertDoc } = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: tab.tabId });
+            const md = convertDocumentToMarkdown(convertDoc, { installDir, mergeCodeBlocksAcrossBlankLine: true });
+            const noteTitle = tab.title || `${docTitle} - Tab`;
+            const newNote = await createNote(j, noteTitle, md, notebook.id);
+            bindNote(dataDir, newNote.id, { fileId: fid, tabId: tab.tabId });
+            noteIds.push(newNote.id);
+            try {
+              await ctx.provider.updateAppProperties(fid, { joplinNoteId: newNote.id });
+            } catch (_) {
+              // Ignore
+            }
+            created += 1;
+            bound += 1;
+            imported.push(noteTitle);
+          }
+          // Reload mapping so we don't overwrite the note bindings we just saved via bindNote
+          const currentMapping = loadMapping(dataDir);
+          currentMapping.notebooks = currentMapping.notebooks || {};
+          currentMapping.notebooks[notebook.id] = { fileId: fid, noteIds };
+          saveMapping(dataDir, currentMapping);
+          multiTabCount += 1;
         }
-        
-        created += 1;
-        bound += 1;
-        imported.push(title);
       } catch (err) {
-        skipped.push(`"${title}" (import error)`);
+        skipped.push(`"${docTitle}" (import error)`);
         console.error(`Failed to import ${fid}:`, err);
       }
     }
-    
-    // Show summary
-    const msg = `Imported: ${imported.length} | Skipped: ${skipped.length}`;
+
+    // Show summary (include multi-tab limitation when relevant)
+    let msg = `Imported: ${imported.length} | Skipped: ${skipped.length}`;
+    if (multiTabCount > 0) {
+      msg += `\n\nMulti-tab: ${multiTabCount} document(s) imported as notebooks (one note per tab). These notes sync with the existing tabs.\n\nIf you use "Export Notebook" later, it will create separate Google Docs in a folder, not a single multi-tab document.\n(Google Docs API does not support creating tabs.)`;
+    }
     if (skipped.length > 0) {
       await showWarningDialog(j, 'Import Complete', msg);
     } else if (imported.length > 0) {
