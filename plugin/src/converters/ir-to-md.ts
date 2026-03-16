@@ -60,6 +60,11 @@ const getDelimiter = (prev: Paragraph, current: Paragraph): string => {
     return '\n';
   }
   
+  // Consecutive code blocks: blank line between them for readability (e.g. when split on import/pull)
+  if (prev.type === 'code_block' && current.type === 'code_block') {
+    return '\n\n';
+  }
+  
   // Self-delimiting elements
   if (currIsSelfDelim) {
     return '\n';

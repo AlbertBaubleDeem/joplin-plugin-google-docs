@@ -437,19 +437,22 @@ const elementToParagraph = (
 
 /**
  * Merge consecutive code_block paragraphs into a single code block.
- * Only merges blocks that are DIRECTLY adjacent (no separator between them).
+ * When mergeAcrossBlankLine is true, also merges when a blank paragraph separates them (paste-artifact case).
  */
-const mergeConsecutiveCodeBlocks = (paragraphs: Paragraph[]): Paragraph[] => {
+const mergeConsecutiveCodeBlocks = (paragraphs: Paragraph[], config?: ConverterConfig): Paragraph[] => {
   if (paragraphs.length === 0) return [];
   
+  const mergeAcrossBlank = config?.code?.block?.mergeAcrossBlankLine === true;
   const result: Paragraph[] = [];
   
   for (const para of paragraphs) {
     const last = result[result.length - 1];
+    const mayMerge = last?.type === 'code_block' && para.type === 'code_block' &&
+      (!para.hasPrecedingSeparator || mergeAcrossBlank);
     
-    // Merge if both are code blocks and no separator flag
-    if (last?.type === 'code_block' && para.type === 'code_block' && !para.hasPrecedingSeparator) {
-      last.spans.push({ text: '\n' }, ...para.spans);
+    if (mayMerge) {
+      const separator = para.hasPrecedingSeparator ? '\n\n' : '\n';
+      last.spans.push({ text: separator }, ...para.spans);
       debug('docs-to-ir', 'merged-code-block', para.spans[0]?.text?.substring(0, 20));
     } else {
       result.push(para);
@@ -583,7 +586,7 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   }
   
   // Post-processing pipeline
-  const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs);
+  const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs, cfg);
   const finalParagraphs = extractLanguageLabels(mergedParagraphs, body);
   
   debug('docs-to-ir', 'result', finalParagraphs);

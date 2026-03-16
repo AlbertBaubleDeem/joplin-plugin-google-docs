@@ -202,7 +202,7 @@ export async function openDrivePickerDialog(params: Params): Promise<{ selected:
       
       try {
         const { convertDoc } = await buildConversionDocFromTabs(ctx.docs, fid, { tabId: undefined });
-        const md = convertDocumentToMarkdown(convertDoc, { installDir });
+        const md = convertDocumentToMarkdown(convertDoc, { installDir, mergeCodeBlocksAcrossBlankLine: true });
         const newNote = await createNote(j, title, md, targetFolderId);
         bindNote(dataDir, newNote.id, { fileId: fid });
         

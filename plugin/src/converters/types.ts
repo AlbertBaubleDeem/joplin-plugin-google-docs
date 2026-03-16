@@ -118,6 +118,8 @@ export type ConverterConfig = {
       detect?: boolean;
       /** Fence marker (default: '```', alternative: '~~~') */
       marker?: string;
+      /** When true, merge consecutive code blocks even when separated by a blank line (e.g. paste-artifact splits) */
+      mergeAcrossBlankLine?: boolean;
     };
     /** Monospace font for code (default: 'Roboto Mono') */
     monoFont?: string;

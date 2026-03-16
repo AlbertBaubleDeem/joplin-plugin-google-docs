@@ -209,19 +209,23 @@ export function buildDocsStyleUpdateRequests(
  * Internally, it uses: docsContent → IR → markdown
  * 
  * @param doc - The document object from documents.get API
- * @param opts - Options including installDir for config
+ * @param opts - Options including installDir for config and optional mergeCodeBlocksAcrossBlankLine (e.g. for import / per-note pull)
  * @returns The Markdown string
  */
 export function convertDocumentToMarkdown(
   doc: any,
-  opts?: { installDir?: string }
+  opts?: { installDir?: string; mergeCodeBlocksAcrossBlankLine?: boolean }
 ): string {
   if (opts?.installDir) {
     setInstallDir(opts.installDir);
   }
   
   const config = loadConfig(opts?.installDir);
-  const ir = docsToIR(doc, config);
+  const mergeAcrossBlank = opts?.mergeCodeBlocksAcrossBlankLine === true;
+  const effectiveConfig = mergeAcrossBlank
+    ? { ...config, code: { ...config.code, block: { ...config.code?.block, mergeAcrossBlankLine: true } } }
+    : config;
+  const ir = docsToIR(doc, effectiveConfig);
   return irToMarkdown(ir, config);
 }
 

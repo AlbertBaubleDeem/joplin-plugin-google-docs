@@ -6,6 +6,8 @@ export type NoteBinding = {
   tabId?: string;
   lastKnownRevisionId?: string;
   lastSyncTs?: number;
+  /** When true, merge consecutive code blocks across blank lines when pulling (for notes imported from "naughty" Docs) */
+  mergeCodeBlocksOnPull?: boolean;
 };
 
 export type NotebookBinding = {
@@ -53,6 +55,7 @@ export function bindNote(baseDir: string, noteId: string, binding: NoteBinding):
     tabId: binding.tabId,
     lastKnownRevisionId: binding.lastKnownRevisionId,
     lastSyncTs: binding.lastSyncTs,
+    mergeCodeBlocksOnPull: binding.mergeCodeBlocksOnPull,
   };
   saveMapping(baseDir, m);
   return m;
