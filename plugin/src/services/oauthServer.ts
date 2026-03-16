@@ -17,11 +17,13 @@ import { parse } from 'url';
 import { OAuth2Client } from 'google-auth-library';
 
 // OAuth scopes required by the plugin
-// - drive.file: Only files created by this app or explicitly opened by user
+// - drive.file: Create/edit files and access files created or opened by this app
+// - drive.readonly: List all Drive files in the import picker (drive.file alone only returns app-created docs)
 // - documents: Read/write access to Google Docs
 // - devstorage.full_control: Upload images to GCS and set public ACLs for embedding in docs
 const oauthScopes = [
   'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/devstorage.full_control',
 ];

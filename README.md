@@ -57,9 +57,12 @@ The plugin includes a setup wizard (**Tools > Google Docs: Setup Wizard**) that 
 
 ### OAuth scopes
 
-- `drive.file` -- only files created by the plugin or explicitly selected by the user
+- `drive.file` -- create/edit files and access files created or opened by the plugin
+- `drive.readonly` -- list all your Google Docs in the import picker (without this, only plugin-created docs appear)
 - `documents` -- read/write Google Docs content
 - `devstorage.full_control` -- temporary image upload for embedding (optional)
+
+If you already had the plugin installed and the import picker only showed Joplin-created docs, run the setup wizard again (re-authorize) so the new `drive.readonly` scope is granted.
 
 ## Repository structure
 
