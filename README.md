@@ -12,12 +12,16 @@ Bidirectional sync between Joplin notes and Google Docs. Edit in Joplin, changes
 | Pull Google Doc back to Joplin note | Done |
 | Export entire notebook to Google Drive folder | Done |
 | Push/Pull sync with conflict detection | Done |
+| Multi-tab Google Doc import and sync (one notebook, one note per tab) | Done |
 | Image sync (including WebP, AVIF auto-conversion) | Done |
 | Background polling for remote changes | Done |
 | Sync status icons in note list | Done |
 | Setup wizard (OAuth configuration) | Done |
 | Bind/unbind notes to existing Docs | Done |
 | Import existing Google Docs via Drive picker | Done |
+| Configurable code font size and color (`md-mapping.json`) | Done |
+| Code blocks: multiple Doc paragraphs merged into one on import | Done |
+| Table support (Markdown ↔ Google Docs) | Todo |
 
 ## Markdown conversion
 
@@ -31,6 +35,10 @@ Formats preserved through push and pull:
 - Images (as text placeholders, or uploaded via GCS)
 - Callout blocks (`<note>`, `<info>`, `<warning>`, `<tip>`, `<question>`, `<jarvis>`)
 - Soft line breaks within list items
+
+- **Code block styling:** Code font family, size, and foreground color are configurable in `md-mapping.json` (in the plugin data directory). Set `code.fontSize` (pt) and `code.foregroundColor` (hex, e.g. `#333333`); leave empty or 0 to use defaults.
+- **Multi-tab Docs:** Importing a Google Doc with multiple tabs creates a Joplin notebook with one note per tab; each note syncs with its tab. The Google Docs API cannot create tabs, so "Export Notebook" on such a notebook creates separate docs in a folder, not one multi-tab document.
+- **Code blocks on import:** Consecutive paragraphs in a Google Doc that form a single code block are merged into one fenced block when pulling into Joplin.
 
 See [Known Issues](https://github.com/AlbertBaubleDeem/joplin-plugin-google-docs/wiki/Known-Issues) for roundtrip limitations.
 
@@ -92,6 +100,10 @@ npm run dist        # Build to dist/ and create .jpl archive
 ```
 
 The build outputs a `.jpl` file to `plugin/publish/`. All dependencies are bundled via webpack.
+
+### WSL deployment
+
+From `plugin/`, run `npm run deploy:wsl` to copy the built plugin to the Joplin plugins directory. Set `JOPLIN_PLUGIN_DEST` in `.env` (or the script's configured path) to the target directory.
 
 ### Running tests
 

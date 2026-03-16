@@ -18,14 +18,11 @@ Run **Tools > Google Docs: Setup Wizard** for guided OAuth configuration. The wi
 5. Authorizing the plugin
 6. Setting up a sync folder
 
-### Manual configuration
+### Configuration (GUI)
 
-Place credentials in the plugin data directory (`~/.config/joplin-desktop/plugins/io.github.albertbaubledeem.joplin.google-docs/`):
+Use the setup wizard above, or enter Client ID and Client Secret in **Settings > Google Docs Sync** and complete authorization when prompted. 
 
-- `.env` with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
-- `.token.json` with OAuth tokens
-
-Alternatively, enter Client ID and Client Secret in **Settings > Google Docs Sync**.
+**Manual fallback:** In the plugin data directory (e.g. `~/.config/joplin-desktop/plugins/io.github.albertbaubledeem.joplin.google-docs/`), you can place `.env` (with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`) and `.token.json` (OAuth tokens) instead.
 
 ### OAuth scopes
 
@@ -35,26 +32,20 @@ Enable these APIs in your Google Cloud project:
 - **Docs API** (`documents`) -- read/write document content
 - **Cloud Storage API** (`devstorage.full_control`) -- optional, for image sync
 
-## Building
-
-```sh
-npm install
-npm run dist
-```
-
-This compiles TypeScript, bundles all dependencies via webpack, and creates a `.jpl` archive in `publish/`.
-
-### WSL deployment
-
-```sh
-npm run deploy:wsl
-```
-
-Copies the built plugin to the Joplin plugins directory configured in `.env` (`JOPLIN_PLUGIN_DEST`).
-
 ## Formatting configuration
 
-User-customizable formatting lives in `config/md-mapping.json`. The plugin copies a default config to its data directory on first run. Edit the copy there to customize heading styles, code block appearance, and list markers.
+User-customizable formatting lives in `md-mapping.json` in the plugin data directory. The plugin copies a default from `config/md-mapping.json` on first run. Edit the copy to customize:
+
+- Heading styles and list markers
+- **Code blocks:** font family (`code.monoFont`), font size in pt (`code.fontSize`), and foreground color (`code.foregroundColor`, hex e.g. `#333333`). Use `0` or empty for defaults.
+
+## Multi-tab Google Docs
+
+Importing a Doc with multiple tabs (via **Tools > Google Docs Sync: Import/Bind**) creates a Joplin notebook with one note per tab; each note syncs with its tab. The Google Docs API does not support creating tabs, so "Export Notebook" on such a notebook creates separate Google Docs in a folder, not a single multi-tab document. The import-complete dialog explains this.
+
+## Import behaviour
+
+When pulling a Google Doc into Joplin, consecutive paragraphs that form a single code block in the Doc are merged into one fenced code block in Markdown.
 
 ## Troubleshooting
 
