@@ -114,12 +114,17 @@ function withTabId(requests: unknown[], tabId: string | undefined): unknown[] {
   if (!tabId) return requests;
   return requests.map((req: any) => {
     if (!req || typeof req !== 'object') return req;
-    const out = { ...req };
-    if (out.range && typeof out.range === 'object') {
-      out.range = { ...out.range, tabId };
-    }
-    if (out.location && typeof out.location === 'object') {
-      out.location = { ...out.location, tabId };
+    const out: any = {};
+    for (const [key, val] of Object.entries(req)) {
+      if (!val || typeof val !== 'object') { out[key] = val; continue; }
+      const inner: any = { ...(val as any) };
+      if (inner.range && typeof inner.range === 'object') {
+        inner.range = { ...inner.range, tabId };
+      }
+      if (inner.location && typeof inner.location === 'object') {
+        inner.location = { ...inner.location, tabId };
+      }
+      out[key] = inner;
     }
     return out;
   });

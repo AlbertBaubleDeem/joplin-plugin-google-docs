@@ -11,7 +11,7 @@
  */
 
 import { createServer, Server } from 'http';
-import { writeFileSync, existsSync, readFileSync, unlinkSync } from 'fs';
+import { writeFileSync, existsSync, readFileSync, unlinkSync, copyFileSync } from 'fs';
 import { resolve } from 'path';
 import { parse } from 'url';
 import { OAuth2Client } from 'google-auth-library';
@@ -71,7 +71,8 @@ export function generateAuthUrl(config: OAuthConfig): string {
 export function startOAuthServer(
   config: OAuthConfig,
   installDir: string,
-  timeoutMs: number = 5 * 60 * 1000
+  timeoutMs: number = 5 * 60 * 1000,
+  dataDir?: string
 ): Promise<OAuthResult> {
   return new Promise((done) => {
     const port = config.port || defaultPort;
@@ -144,8 +145,9 @@ export function startOAuthServer(
       try {
         const { tokens } = await oauth2Client.getToken(code);
         
-        // Save tokens
-        const tokenPath = resolve(installDir, '.token.json');
+        // Save tokens to dataDir (persistent) if available, else installDir
+        const tokenDir = dataDir || installDir;
+        const tokenPath = resolve(tokenDir, '.token.json');
         writeFileSync(tokenPath, JSON.stringify(tokens, null, 2));
         
         res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -190,18 +192,40 @@ export function startOAuthServer(
 }
 
 /**
- * Check if tokens exist and are valid
+ * Resolve the token file path, preferring dataDir (persists across updates)
+ * over installDir (cache, wiped on reinstall).
  */
-export function hasValidTokens(installDir: string): boolean {
-  const tokenPath = resolve(installDir, '.token.json');
-  
+function resolveTokenPath(installDir: string, dataDir?: string): string {
+  if (dataDir) {
+    const dataPath = resolve(dataDir, '.token.json');
+    if (existsSync(dataPath)) return dataPath;
+
+    // Migrate: token exists in installDir but not dataDir — copy it over
+    const installPath = resolve(installDir, '.token.json');
+    if (existsSync(installPath)) {
+      try { copyFileSync(installPath, dataPath); } catch { /* best-effort */ }
+      return dataPath;
+    }
+
+    return dataPath;
+  }
+  const installPath = resolve(installDir, '.token.json');
+  return installPath;
+}
+
+/**
+ * Check if tokens exist and are valid.
+ * Checks dataDir first (persistent), then installDir (legacy/cache).
+ */
+export function hasValidTokens(installDir: string, dataDir?: string): boolean {
+  const tokenPath = resolveTokenPath(installDir, dataDir);
+
   if (!existsSync(tokenPath)) {
     return false;
   }
-  
+
   try {
     const tokens = JSON.parse(readFileSync(tokenPath, 'utf8'));
-    // Check if we have at least an access token or refresh token
     return !!(tokens.access_token || tokens.refresh_token);
   } catch {
     return false;
@@ -209,12 +233,13 @@ export function hasValidTokens(installDir: string): boolean {
 }
 
 /**
- * Delete stored tokens (for re-authorization)
+ * Delete stored tokens (for re-authorization).
+ * Clears from both dataDir and installDir.
  */
-export function clearTokens(installDir: string): void {
-  const tokenPath = resolve(installDir, '.token.json');
-  
-  if (existsSync(tokenPath)) {
-    unlinkSync(tokenPath);
+export function clearTokens(installDir: string, dataDir?: string): void {
+  for (const dir of [installDir, dataDir]) {
+    if (!dir) continue;
+    const p = resolve(dir, '.token.json');
+    if (existsSync(p)) unlinkSync(p);
   }
 }

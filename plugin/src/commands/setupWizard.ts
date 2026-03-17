@@ -109,7 +109,7 @@ export async function runSetupWizard(params: SetupWizardParams): Promise<SetupWi
       
       case 'authorize': {
         // Check if already authorized
-        if (hasValidTokens(installDir)) {
+        if (hasValidTokens(installDir, dataDir)) {
           currentStep = 'syncFolder';
           break;
         }
@@ -481,7 +481,7 @@ const escapeHtml = (str: string): string => {
 /**
  * Check if setup is needed (no valid tokens)
  */
-export function isSetupNeeded(installDir: string): boolean {
-  return !hasValidTokens(installDir);
+export function isSetupNeeded(installDir: string, dataDir?: string): boolean {
+  return !hasValidTokens(installDir, dataDir);
 }
 

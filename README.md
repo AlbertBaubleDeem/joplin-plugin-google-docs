@@ -20,7 +20,7 @@ Bidirectional sync between Joplin notes and Google Docs. Edit in Joplin, changes
 | Bind/unbind notes to existing Docs | Done |
 | Import existing Google Docs via Drive picker | Done |
 | Configurable code font size and color (`md-mapping.json`) | Done |
-| Code blocks: multiple Doc paragraphs merged into one on import | Done |
+| Code blocks: Google Code block paragraphs merged into one on import | Done |
 | Table support (Markdown ↔ Google Docs) | Todo |
 
 ## Markdown conversion

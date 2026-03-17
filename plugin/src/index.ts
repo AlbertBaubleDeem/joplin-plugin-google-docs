@@ -221,7 +221,7 @@ joplin.plugins.register({
     // Auto-run setup wizard on first install
     try {
       const wizardCompleted = await joplin.settings.value('wizardCompleted');
-      if (!wizardCompleted && isSetupNeeded(installDir)) {
+      if (!wizardCompleted && isSetupNeeded(installDir, dataDir)) {
         const result = await runSetupWizard({ j: joplin, installDir, dataDir });
         if (result.completed) {
           // Mark wizard as completed so it won't run again

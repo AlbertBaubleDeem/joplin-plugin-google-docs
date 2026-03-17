@@ -56,7 +56,7 @@ export async function createSyncContext(
   dataDir: string,
   joplin?: any
 ): Promise<SyncContext> {
-  const auth = await getAuthClient(installDir);
+  const auth = await getAuthClient(installDir, dataDir);
   
   // Create API clients using static imports
   const drive = new drive_v3.Drive({ auth });

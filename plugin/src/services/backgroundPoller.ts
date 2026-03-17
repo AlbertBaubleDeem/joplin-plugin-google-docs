@@ -35,7 +35,8 @@ export async function startBackgroundPoller(config: PollerConfig): Promise<void>
       console.warn('[gdocs-poller] Auto sync is disabled in settings');
       return;
     }
-    if (!hasValidTokens(installDir)) {
+    const tokensValid = hasValidTokens(installDir, dataDir);
+    if (!tokensValid) {
       console.warn('[gdocs-poller] No valid tokens at', installDir);
       return;
     }
@@ -48,7 +49,6 @@ export async function startBackgroundPoller(config: PollerConfig): Promise<void>
 
     console.warn('[gdocs-poller] Starting with interval', settings.pollIntervalMinutes, 'min');
 
-    // Run poller function
     async function runPoller() {
       try {
         const ctx = await createSyncContext(installDir, dataDir, j);
@@ -60,10 +60,7 @@ export async function startBackgroundPoller(config: PollerConfig): Promise<void>
       }
     }
 
-    // Start interval
     pollIntervalId = setInterval(runPoller, intervalMs);
-
-    // Run immediately on start (after 5 second delay)
     setTimeout(runPoller, 5000);
   } catch (e) {
     console.error('[gdocs] Failed to start background poller:', e);

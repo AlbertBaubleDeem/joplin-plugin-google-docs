@@ -9,15 +9,20 @@ import { resolve } from 'path';
 import { OAuth2Client } from 'google-auth-library';
 
 /**
- * Load environment variables from .env file
+ * Load environment variables from .env file.
+ * Checks dataDir first (persistent), then installDir (cache/legacy).
  */
-const loadEnvFromFile = (installDir: string): void => {
-  const envPath = resolve(installDir, '.env');
-  if (existsSync(envPath)) {
-    const env = readFileSync(envPath, 'utf8');
-    for (const line of env.split('\n')) {
-      const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-      if (m) process.env[m[1]] = m[2];
+const loadEnvFromFile = (installDir: string, dataDir?: string): void => {
+  for (const dir of [dataDir, installDir]) {
+    if (!dir) continue;
+    const envPath = resolve(dir, '.env');
+    if (existsSync(envPath)) {
+      const env = readFileSync(envPath, 'utf8');
+      for (const line of env.split('\n')) {
+        const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+        if (m) process.env[m[1]] = m[2];
+      }
+      return;
     }
   }
 };
@@ -34,25 +39,29 @@ export function getOAuthCredentials(): { clientId: string; clientSecret: string;
 }
 
 /**
- * Create an authenticated OAuth2Client from saved tokens
- * 
- * @param installDir - Path to the plugin installation directory
- * @returns Authenticated OAuth2Client ready for API calls
+ * Create an authenticated OAuth2Client from saved tokens.
+ * Checks dataDir first (persistent across updates), then installDir (legacy/cache).
  */
-export async function getAuthClient(installDir: string): Promise<OAuth2Client> {
-  // Load env from installDir/.env if present
-  loadEnvFromFile(installDir);
-  
+export async function getAuthClient(installDir: string, dataDir?: string): Promise<OAuth2Client> {
+  loadEnvFromFile(installDir, dataDir);
+
   const { clientId, clientSecret, redirectUri } = getOAuthCredentials();
-  
-  // Load OAuth tokens
-  const tokenPath = resolve(installDir, '.token.json');
+
+  // Try dataDir first (persistent), fall back to installDir (cache/legacy)
+  let tokenPath = '';
+  if (dataDir) {
+    const dp = resolve(dataDir, '.token.json');
+    if (existsSync(dp)) tokenPath = dp;
+  }
+  if (!tokenPath) {
+    tokenPath = resolve(installDir, '.token.json');
+  }
+
   const tokens = JSON.parse(readFileSync(tokenPath, 'utf8'));
-  
-  // Create OAuth2 client with credentials
+
   const auth = new OAuth2Client(clientId, clientSecret, redirectUri);
   auth.setCredentials(tokens);
-  
+
   return auth;
 }
 

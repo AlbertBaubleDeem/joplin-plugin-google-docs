@@ -230,6 +230,7 @@ export class MinimalPoller {
             noteUpdated,
             docModified,
             lastSyncTs: nb.lastSyncTs,
+            noteId: it.noteId,
           });
           return { ...it, action: d.action, reason: d.reason };
         })
@@ -240,8 +241,8 @@ export class MinimalPoller {
         if (result.status === 'fulfilled') {
           allDecisions.push(result.value);
         } else {
-          // If metadata fetch fails, default to pull to avoid overwriting Docs
-          allDecisions.push({ ...base.items[i], action: 'pull', reason: 'metaError' });
+          console.warn('[plugin-poller] Metadata fetch failed for', base.items[i].noteId, result.reason);
+          allDecisions.push({ ...base.items[i], action: 'skip', reason: 'metaError' });
         }
       }
     }
@@ -304,11 +305,9 @@ export class MinimalPoller {
     for (const d of decisions) {
       try {
         if (d.action === 'push') {
-          // Use pushNote command - reuses existing SyncContext
           await pushNote({ j, installDir, dataDir, noteId: d.noteId, ctx: this.ctx });
           updated += 1;
         } else {
-          // Use pullNote command - reuses existing SyncContext
           const result = await pullNote({ j, installDir, dataDir, noteId: d.noteId, ctx: this.ctx });
           if (result.updated) {
             updated += 1;
@@ -316,7 +315,6 @@ export class MinimalPoller {
         }
       } catch (err) {
         console.error(`[plugin-poller] Error syncing note ${d.noteId}:`, err);
-        // continue with other notes
       }
     }
     return { matched, updated, decisions };
@@ -329,7 +327,7 @@ async function fetchNoteUpdated(j: any, noteId: string): Promise<number> {
 }
 
 async function fetchDriveModified(drive: SyncContext['drive'], fileId: string): Promise<number> {
-  const fileMeta = await drive.files.get({ fileId, fields: 'id, modifiedTime' });
+  const fileMeta = await drive.files.get({ fileId, fields: 'id, modifiedTime', supportsAllDrives: true });
   return Date.parse((fileMeta.data as { modifiedTime?: string }).modifiedTime || '0');
 }
 
@@ -344,6 +342,7 @@ const decideAction = (args: {
   noteUpdated: number;
   docModified: number;
   lastSyncTs?: number;
+  noteId?: string;
 }): { action: 'pull' | 'push' | 'skip'; reason: string } => {
   const { lastKnownRevisionId, currentRevisionId, noteUpdated, docModified, lastSyncTs } = args;
   const lastSync = Number(lastSyncTs || 0);
@@ -352,21 +351,17 @@ const decideAction = (args: {
   const docRevisionChanged = !!(lastKnownRevisionId && currentRevisionId && lastKnownRevisionId !== currentRevisionId);
   const noteChangedSinceSync = noteUpdated > (lastSync + tolerance);
 
-  // Both sides changed: compare timestamps to pick the winner
   if (docRevisionChanged && noteChangedSinceSync) {
     return noteUpdated >= (docModified || 0)
       ? { action: 'push', reason: 'bothChangedNoteNewer' }
       : { action: 'pull', reason: 'bothChangedDocNewer' };
-  }
-
-  // Only doc changed
-  if (docRevisionChanged) return { action: 'pull', reason: 'docRevisionChanged' };
-
-  // Only note changed (and doc revision is the same or unknown)
-  if (noteChangedSinceSync) {
+  } else if (docRevisionChanged) {
+    return { action: 'pull', reason: 'docRevisionChanged' };
+  } else if (noteChangedSinceSync) {
     const docUnchanged = !lastKnownRevisionId || lastKnownRevisionId === currentRevisionId;
-    if (docUnchanged) return { action: 'push', reason: 'noteUpdatedDocUnchanged' };
+    return docUnchanged
+      ? { action: 'push', reason: 'noteUpdatedDocUnchanged' }
+      : { action: 'skip', reason: 'noChanges' };
   }
-
   return { action: 'skip', reason: 'noChanges' };
 };
