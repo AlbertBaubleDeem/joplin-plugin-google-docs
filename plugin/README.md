@@ -47,6 +47,20 @@ Importing a Doc with multiple tabs (via **Tools > Google Docs Sync: Import/Bind*
 
 When pulling a Google Doc into Joplin, consecutive paragraphs that form a single code block in the Doc are merged into one fenced code block in Markdown.
 
+## Changelog
+
+### 1.0.3
+
+- **Fix: OAuth tokens survive plugin reinstalls.** Tokens and credentials are now stored in the persistent data directory instead of the ephemeral install cache.
+- **Fix: multi-tab push targets the correct tab.** Previously all pushes went to the first tab regardless of binding; the Google Docs API request traversal now correctly injects `tabId`.
+- **Fix: metadata fetch errors no longer overwrite local edits.** When the poller cannot retrieve document metadata it now skips the note instead of force-pulling.
+- **Fix: imported documents no longer cause "File not found" during polling.** Added Shared Drive support to metadata lookups.
+- Added Google Doc screenshot to the plugin listing.
+
+### 1.0.2
+
+- Initial public release on npm.
+
 ## Troubleshooting
 
 - **Commands not visible:** Quit and restart Joplin completely (File > Quit). Delete the plugin cache folder if needed.

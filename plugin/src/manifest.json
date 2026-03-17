@@ -2,7 +2,7 @@
 	"manifest_version": 1,
 	"id": "io.github.albertbaubledeem.joplin.google-docs",
 	"app_min_version": "2.6",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"name": "Google Docs Sync",
 	"description": "Sync Joplin notes with Google Docs",
 	"author": "AlbertBaubleDeem",
@@ -11,6 +11,10 @@
 	"keywords": ["google-docs", "sync"],
 	"categories": ["integrations"],
 	"screenshots": [
+		{
+			"src": "screenshots/screenshot_doc.png",
+			"label": "Google Doc synced from a Joplin note"
+		},
 		{
 			"src": "screenshots/screenshot_wizard.png",
 			"label": "Setup wizard guiding through Google Cloud configuration"
