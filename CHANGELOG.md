@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.4
+
+### Table roundtrip
+- **Tables:** Full Markdown table roundtrip (push and pull). Push uses Google Docs InsertTableRequest plus per-cell insertText (reverse index order); pull converts Docs tables to GFM Markdown with column-aligned formatting.
+- **Multiline cells:** Cell content with line breaks uses `<br>` in Markdown and `\n` in Docs/IR; pull joins cell paragraphs with `\n`, roundtrip uses `<br>` without surrounding spaces to avoid space growth.
+
+### Other
+- Screenshots (screenshot_doc.png, screenshot_wizard.png) at repo root for plugin listing display.
+
 ## 1.0.0
 
 Full bidirectional sync between Joplin notes and Google Docs.

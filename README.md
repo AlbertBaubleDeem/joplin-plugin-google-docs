@@ -21,7 +21,7 @@ Bidirectional sync between Joplin notes and Google Docs. Edit in Joplin, changes
 | Import existing Google Docs via Drive picker | Done |
 | Configurable code font size and color (`md-mapping.json`) | Done |
 | Code blocks: Google Code block paragraphs merged into one on import | Done |
-| Table support (Markdown ↔ Google Docs) | Todo |
+| Table support (Markdown ↔ Google Docs) | Done |
 
 ## Markdown conversion
 
@@ -41,6 +41,8 @@ Formats preserved through push and pull:
 - **Code blocks on import:** Consecutive paragraphs in a Google Doc that form a single code block are merged into one fenced block when pulling into Joplin.
 
 See [Known Issues](https://github.com/AlbertBaubleDeem/joplin-plugin-google-docs/wiki/Known-Issues) for roundtrip limitations.
+
+**TODO (next big feature):** Pulling images from Google Doc on pull when the image is not already present in Joplin.
 
 ## Setup
 

@@ -45,9 +45,15 @@ Importing a Doc with multiple tabs (via **Tools > Google Docs Sync: Import/Bind*
 
 ## Import behaviour
 
-When pulling a Google Doc into Joplin, consecutive paragraphs that form a single code block in the Doc are merged into one fenced code block in Markdown.
+When pulling a Google Doc into Joplin, consecutive paragraphs that form a single code block in the Doc are merged into one fenced code block in Markdown. Tables are converted to Markdown tables; multiline cells use `<br>`.
+
+**Planned:** Pulling images from Google Doc on pull when the image is not already present in Joplin.
 
 ## Changelog
+
+### 1.0.4
+
+- **Table roundtrip:** Markdown tables sync to Google Docs and back; multiline cells use `<br>` in Markdown.
 
 ### 1.0.3
 
