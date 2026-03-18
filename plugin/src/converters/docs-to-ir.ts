@@ -451,17 +451,19 @@ const tableElementToTableBlock = (
 
   const cellToSpans = (cell: any): StyledSpan[] => {
     const content = cell?.content || [];
-    const spans: StyledSpan[] = [];
+    const paragraphTexts: string[] = [];
     for (const se of content) {
       const para = se?.paragraph;
       if (!para?.elements) continue;
+      let paraText = '';
       for (const el of para.elements) {
         const span = elementToSpan(el, false, config, inlineObjects);
-        if (span) spans.push(span);
+        if (span) paraText += span.text;
       }
+      paragraphTexts.push(paraText);
     }
-    if (spans.length === 0) spans.push({ text: '' });
-    return spans;
+    const cellText = paragraphTexts.join('\n');
+    return [{ text: cellText }];
   };
 
   for (let r = 0; r < tableRows.length; r++) {

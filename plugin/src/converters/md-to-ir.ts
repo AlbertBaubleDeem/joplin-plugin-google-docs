@@ -196,13 +196,18 @@ const tokenToBlocks = (
 
     case 'table': {
       const tableToken = token as Tokens.Table;
-      const headerRow: StyledSpan[][] = (tableToken.header || []).map(cell =>
-        (cell.tokens && cell.tokens.length) ? inlineTokensToSpans(cell.tokens) : [{ text: cell.text || '' }]
-      );
+      const normalizeBr = (s: string): string => s.replace(/<br\s*\/?>/gi, '\n');
+      const cellTextToSpans = (raw: string): StyledSpan[] =>
+        [{ text: normalizeBr(raw) }];
+      const cellToSpans = (cell: Tokens.TableCell): StyledSpan[] => {
+        const spans = (cell.tokens && cell.tokens.length)
+          ? inlineTokensToSpans(cell.tokens)
+          : cellTextToSpans(cell.text || '');
+        return spans.map(span => ({ ...span, text: normalizeBr(span.text) }));
+      };
+      const headerRow: StyledSpan[][] = (tableToken.header || []).map(cellToSpans);
       const rows: StyledSpan[][][] = (tableToken.rows || []).map(row =>
-        row.map(cell =>
-          (cell.tokens && cell.tokens.length) ? inlineTokensToSpans(cell.tokens) : [{ text: cell.text || '' }]
-        )
+        row.map(cellToSpans)
       );
       return [{ type: 'table', headerRow, rows }];
     }

@@ -36,8 +36,9 @@ const isSelfDelimitingParagraph = (para: Paragraph): boolean => {
   return para.type === 'code_block' || para.type === 'callout' || isImageOnlyParagraph(para);
 };
 
-/** Escape pipe for GFM table cell content */
-const escapeCell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+/** Escape pipe for GFM table cell content; use <br> for newlines so row stays one line (Joplin/marked) and renders as multiline; no spaces around <br> to avoid space growth on roundtrip */
+const escapeCell = (s: string): string =>
+  s.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
 
 /**
  * Determine the newline delimiter between two blocks.
