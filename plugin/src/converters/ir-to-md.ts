@@ -5,7 +5,7 @@
  * This is used for the pull (Docs→MD) direction.
  */
 
-import { IRDocument, Paragraph, StyledSpan, ConverterConfig } from './types';
+import { IRDocument, Paragraph, StyledSpan, ConverterConfig, DocBlock, TableBlock, isParagraph } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
 
@@ -36,54 +36,31 @@ const isSelfDelimitingParagraph = (para: Paragraph): boolean => {
   return para.type === 'code_block' || para.type === 'callout' || isImageOnlyParagraph(para);
 };
 
+/** Escape pipe for GFM table cell content */
+const escapeCell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+
 /**
- * Determine the newline delimiter between two paragraphs.
- * 
- * Rules:
- * - List → List: single newline (consecutive list items)
- * - Self-delimiting → Self-delimiting: single newline
- * - Self-delimiting → Text: double newline
- * - Text → Self-delimiting: single newline
- * - Text → Text with hasPrecedingSeparator: double newline (was a blank line in source)
- * - Text → Text without hasPrecedingSeparator: single newline (adjacent in source)
- * - Text → List: double newline (list needs blank line before)
- * - List → Text: double newline
+ * Determine the newline delimiter between two blocks.
+ * Tables are always surrounded by blank lines.
  */
-const getDelimiter = (prev: Paragraph, current: Paragraph): string => {
-  const prevIsListItem = isListItemParagraph(prev);
-  const currIsListItem = isListItemParagraph(current);
-  const prevIsSelfDelim = isSelfDelimitingParagraph(prev);
-  const currIsSelfDelim = isSelfDelimitingParagraph(current);
-  
-  // Consecutive list items: single newline
-  if (prevIsListItem && currIsListItem) {
-    return '\n';
-  }
-  
-  // Consecutive code blocks: blank line between them for readability (e.g. when split on import/pull)
-  if (prev.type === 'code_block' && current.type === 'code_block') {
+const getDelimiter = (prev: DocBlock, current: DocBlock): string => {
+  if (prev.type === 'table' || current.type === 'table') {
     return '\n\n';
   }
-  
-  // Self-delimiting elements
-  if (currIsSelfDelim) {
-    return '\n';
-  }
-  if (prevIsSelfDelim) {
-    return '\n\n';
-  }
-  
-  // Paragraph → Paragraph (both plain text, no headings): use hasPrecedingSeparator.
-  // When pulling from Google Docs, consecutive paragraphs without an empty
-  // paragraph between them were originally on adjacent lines in Markdown.
-  // Headings always need a blank line before/after for proper Markdown rendering.
-  const prevIsPlainText = prev.type === 'paragraph';
-  const currIsPlainText = current.type === 'paragraph';
-  if (prevIsPlainText && currIsPlainText && !current.hasPrecedingSeparator) {
-    return '\n';
-  }
-  
-  // Everything else: double newline
+  const prevPara = prev;
+  const currentPara = current;
+  const prevIsListItem = isListItemParagraph(prevPara);
+  const currIsListItem = isListItemParagraph(currentPara);
+  const prevIsSelfDelim = isSelfDelimitingParagraph(prevPara);
+  const currIsSelfDelim = isSelfDelimitingParagraph(currentPara);
+
+  if (prevIsListItem && currIsListItem) return '\n';
+  if (prevPara.type === 'code_block' && currentPara.type === 'code_block') return '\n\n';
+  if (currIsSelfDelim) return '\n';
+  if (prevIsSelfDelim) return '\n\n';
+  const prevIsPlainText = prevPara.type === 'paragraph';
+  const currIsPlainText = currentPara.type === 'paragraph';
+  if (prevIsPlainText && currIsPlainText && !currentPara.hasPrecedingSeparator) return '\n';
   return '\n\n';
 };
 
@@ -118,27 +95,27 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
     lastListType: null,
   };
   
-  // Convert paragraphs and keep reference to original for delimiter logic
-  const converted: { text: string; para: Paragraph }[] = [];
-  
-  for (const para of doc) {
-    const line = paragraphToMarkdown(para, cfg, listState);
-    if (line !== null) {
-      converted.push({ text: line, para });
+  const converted: { text: string; block: DocBlock }[] = [];
+
+  for (const block of doc) {
+    if (block.type === 'table') {
+      converted.push({ text: tableBlockToMarkdown(block, cfg), block });
+    } else {
+      const line = paragraphToMarkdown(block, cfg, listState);
+      if (line !== null) {
+        converted.push({ text: line, block });
+      }
     }
   }
-  
-  // Join paragraphs with appropriate spacing using getDelimiter
+
   const parts: string[] = [];
   for (let i = 0; i < converted.length; i++) {
     const current = converted[i];
-    
     if (i === 0) {
       parts.push(current.text);
     } else {
       const prev = converted[i - 1];
-      const delimiter = getDelimiter(prev.para, current.para);
-      parts.push(delimiter + current.text);
+      parts.push(getDelimiter(prev.block, current.block) + current.text);
     }
   }
   
@@ -277,6 +254,36 @@ const getPrefix = (para: Paragraph, config: ConverterConfig): string => {
 
 const spansToMarkdown = (spans: StyledSpan[], config: ConverterConfig): string => {
   return spans.map(span => spanToMarkdown(span, config)).join('');
+};
+
+/**
+ * Convert a table block to GFM markdown with column-aligned cells (pretty-printed).
+ */
+const tableBlockToMarkdown = (table: TableBlock, config: ConverterConfig): string => {
+  const cellToText = (cell: StyledSpan[]): string =>
+    escapeCell(spansToMarkdown(cell, config).trim());
+  const headerCells = table.headerRow.map(cellToText);
+  const colCount = Math.max(headerCells.length, ...table.rows.map(r => r.length));
+  const padToCount = (arr: string[]): string[] => {
+    const out = [...arr];
+    while (out.length < colCount) out.push('');
+    return out;
+  };
+  const allRows: string[][] = [
+    padToCount(headerCells),
+    ...table.rows.map(row => padToCount(row.map(cellToText))),
+  ];
+  const colWidths = Array.from({ length: colCount }, (_, j) =>
+    Math.max(3, ...allRows.map(row => (row[j] ?? '').length))
+  );
+  const padCell = (text: string, j: number): string =>
+    (text ?? '').padEnd(colWidths[j], ' ');
+  const headerLine = '| ' + allRows[0].map((c, j) => padCell(c, j)).join(' | ') + ' |';
+  const delimiterLine = '| ' + colWidths.map(w => '---'.padEnd(w, '-')).join(' | ') + ' |';
+  const dataLines = allRows.slice(1).map(row =>
+    '| ' + row.map((c, j) => padCell(c, j)).join(' | ') + ' |'
+  );
+  return [headerLine, delimiterLine, ...dataLines].join('\n');
 };
 
 const spanToMarkdown = (span: StyledSpan, config: ConverterConfig): string => {

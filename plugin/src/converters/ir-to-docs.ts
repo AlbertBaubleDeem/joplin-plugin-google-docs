@@ -6,7 +6,7 @@
  * 2. Style ranges for batchUpdate requests
  */
 
-import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange, ListRange } from './types';
+import { IRDocument, Paragraph, StyledSpan, PlainTextWithRanges, ParaRange, TextRange, CalloutRange, ListRange, TableRange } from './types';
 import { getMonoFont, getElementSpacing, getCodeForegroundColor, getCodeFontSize, parseHexToRgb, type CodeForegroundRgb } from './config';
 import { debug } from './debug';
 import { getCalloutDefinition, calloutByType } from './callout-config';
@@ -159,17 +159,39 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   const paraRanges: ParaRange[] = [];
   const textRanges: TextRange[] = [];
   const calloutRanges: CalloutRange[] = [];
+  const tableRanges: TableRange[] = [];
   const listBuilder = new ListRangeBuilder();
   let plain = '';
   let cursor = 0;
   let prevWasCodeBlock = false;
-  
+
+  const cellToPlain = (cell: StyledSpan[]): string => cell.map(s => s.text).join('').replace(/\n/g, '\u000B');
+
   for (let i = 0; i < doc.length; i++) {
-    const para = doc[i];
+    const block = doc[i];
+
+    if (block.type === 'table') {
+      const headerRow = block.headerRow.map(cellToPlain);
+      const dataRows = block.rows.map(row => row.map(cellToPlain));
+      const rowCount = 1 + dataRows.length;
+      const columnCount = Math.max(headerRow.length, ...dataRows.map(r => r.length));
+      tableRanges.push({
+        position: cursor,
+        rowCount,
+        columnCount,
+        headerRow,
+        dataRows,
+      });
+      plain += '\n';
+      cursor += 1;
+      continue;
+    }
+
+    const para = block;
     const isCodeBlock = para.type === 'code_block';
     const isCallout = para.type === 'callout';
     const isListItem = para.type === 'list_item';
-    
+
     // Handle callout boxes - render as styled paragraph with symbol prefix
     if (isCallout && para.calloutType) {
       const def = getCalloutDefinition(para.calloutType);
@@ -297,7 +319,7 @@ export function irToPlainTextWithRanges(doc: IRDocument, installDir?: string): P
   
   const listRanges = listBuilder.getRanges();
   
-  const result = { plain, paraRanges, textRanges, calloutRanges, listRanges };
+  const result = { plain, paraRanges, textRanges, calloutRanges, listRanges, tableRanges };
   debug('ir-to-docs', 'result', result);
   return result;
 }

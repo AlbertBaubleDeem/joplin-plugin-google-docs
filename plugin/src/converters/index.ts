@@ -66,7 +66,7 @@ import { irToMarkdown } from './ir-to-md';
 import { irToPlainTextWithRanges, buildDocsRequests, buildCodeBlockFontRequests } from './ir-to-docs';
 import { extractImages, calculateImagePositions, hasJoplinImages } from './image-extractor';
 import { loadConfig, setInstallDir, setDataDir } from './config';
-import type { ParaRange, TextRange, ImageRange, ListRange, ConverterConfig } from './types';
+import type { ParaRange, TextRange, ImageRange, ListRange, TableRange, ConverterConfig } from './types';
 
 /**
  * Convert Markdown to plain text and style ranges.
@@ -79,12 +79,12 @@ import type { ParaRange, TextRange, ImageRange, ListRange, ConverterConfig } fro
  * 
  * @param mdRaw - The Markdown source
  * @param opts - Options including installDir for config and processImages flag
- * @returns Plain text, style ranges, image ranges, and list ranges
+ * @returns Plain text, style ranges, image ranges, list ranges, and table ranges
  */
 export function convertMarkdownToPlainAndStyles(
   mdRaw: string,
   opts?: { installDir?: string; processImages?: boolean }
-): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[]; imageRanges: ImageRange[]; listRanges: ListRange[] } {
+): { plain: string; paraRanges: ParaRange[]; textRanges: TextRange[]; imageRanges: ImageRange[]; listRanges: ListRange[]; tableRanges: TableRange[] } {
   if (opts?.installDir) {
     setInstallDir(opts.installDir);
   }
@@ -96,9 +96,9 @@ export function convertMarkdownToPlainAndStyles(
   if (!opts?.processImages) {
     // Simple path: no image processing, no placeholder complexity
     const ir = markdownToIR(mdRaw, config);
-    const { plain, paraRanges, textRanges, listRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
+    const { plain, paraRanges, textRanges, listRanges, tableRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
     
-    return { plain, paraRanges, textRanges, imageRanges: [], listRanges: listRanges || [] };
+    return { plain, paraRanges, textRanges, imageRanges: [], listRanges: listRanges || [], tableRanges: tableRanges || [] };
   }
   
   // Full image processing path (when GCS is configured)
@@ -109,7 +109,7 @@ export function convertMarkdownToPlainAndStyles(
   const ir = markdownToIR(markdownWithPlaceholders, config);
   
   // Step 3: Convert IR to plain text with style ranges
-  const { plain: plainWithPlaceholders, paraRanges: rawParaRanges, textRanges: rawTextRanges, listRanges: rawListRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
+  const { plain: plainWithPlaceholders, paraRanges: rawParaRanges, textRanges: rawTextRanges, listRanges: rawListRanges, tableRanges: rawTableRanges } = irToPlainTextWithRanges(ir, opts?.installDir);
   
   // Step 4: Calculate image positions, remove placeholders, and adjust ranges
   const { cleanPlainText, imageRanges, adjustedParaRanges, adjustedTextRanges } = calculateImagePositions(
@@ -122,7 +122,10 @@ export function convertMarkdownToPlainAndStyles(
   // Step 5: Adjust list ranges for image placeholder removal
   const adjustedListRanges = adjustListRangesForImages(rawListRanges || [], plainWithPlaceholders, images);
   
-  return { plain: cleanPlainText, paraRanges: adjustedParaRanges, textRanges: adjustedTextRanges, imageRanges, listRanges: adjustedListRanges };
+  // Step 6: Adjust table ranges for image placeholder removal
+  const adjustedTableRanges = adjustTableRangesForImages(rawTableRanges || [], plainWithPlaceholders, images);
+  
+  return { plain: cleanPlainText, paraRanges: adjustedParaRanges, textRanges: adjustedTextRanges, imageRanges, listRanges: adjustedListRanges, tableRanges: adjustedTableRanges };
 }
 
 // Image placeholder constant - must match image-extractor.ts
@@ -170,6 +173,41 @@ const adjustListRangesForImages = (
       endIndex: range.endIndex - endAdjustment,
       listType: range.listType,
       totalTabs: range.totalTabs,
+    };
+  });
+};
+
+/**
+ * Adjust table ranges after image placeholder removal.
+ * Each table has a single position (0-based); subtract length of any placeholder before it.
+ */
+const adjustTableRangesForImages = (
+  tableRanges: TableRange[],
+  plainWithPlaceholders: string,
+  images: { placeholderIndex: number }[]
+): TableRange[] => {
+  if (tableRanges.length === 0 || images.length === 0) {
+    return tableRanges;
+  }
+  const placeholderPositions: { position: number; length: number }[] = [];
+  for (const img of images) {
+    const placeholder = `${imagePlaceholder}${img.placeholderIndex}${imagePlaceholder}`;
+    const pos = plainWithPlaceholders.indexOf(placeholder);
+    if (pos !== -1) {
+      placeholderPositions.push({ position: pos, length: placeholder.length });
+    }
+  }
+  placeholderPositions.sort((a, b) => a.position - b.position);
+  return tableRanges.map(range => {
+    let positionAdjustment = 0;
+    for (const pp of placeholderPositions) {
+      if (pp.position < range.position) {
+        positionAdjustment += pp.length;
+      }
+    }
+    return {
+      ...range,
+      position: range.position - positionAdjustment,
     };
   });
 };

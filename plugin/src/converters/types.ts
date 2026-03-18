@@ -83,10 +83,38 @@ export type Paragraph = {
 };
 
 /**
+ * A GFM table block.
+ * headerRow: one row of cells (each cell = array of spans).
+ * rows: data rows (same shape).
+ */
+export type TableBlock = {
+  type: 'table';
+  /** First row (header). Each element is one cell's spans. */
+  headerRow: StyledSpan[][];
+  /** Data rows. Each row is an array of cells; each cell is StyledSpan[]. */
+  rows: StyledSpan[][][];
+};
+
+/**
+ * Document block: either a paragraph or a table.
+ */
+export type DocBlock = Paragraph | TableBlock;
+
+/** Type guard for Paragraph */
+export function isParagraph(block: DocBlock): block is Paragraph {
+  return block.type !== 'table';
+}
+
+/** Type guard for TableBlock */
+export function isTableBlock(block: DocBlock): block is TableBlock {
+  return block.type === 'table';
+}
+
+/**
  * A complete document in IR format.
  * This is the intermediate representation used for all conversions.
  */
-export type IRDocument = Paragraph[];
+export type IRDocument = DocBlock[];
 
 /**
  * Configuration for the converter.
@@ -174,6 +202,23 @@ export type PlainTextWithRanges = {
   calloutRanges?: CalloutRange[];
   /** List ranges for bullet formatting */
   listRanges?: ListRange[];
+  /** Tables to insert (position + cell contents). InsertTableRequest then insertText per cell after re-fetch. */
+  tableRanges?: TableRange[];
+};
+
+/**
+ * A table to be inserted at a position in the plain text.
+ * position: 0-based index where the table placeholder is in plain.
+ * headerRow + dataRows: cell contents as plain strings (for insertText into each cell).
+ */
+export type TableRange = {
+  position: number;
+  rowCount: number;
+  columnCount: number;
+  /** Header row cell texts */
+  headerRow: string[];
+  /** Data row cell texts (row-major) */
+  dataRows: string[][];
 };
 
 /**

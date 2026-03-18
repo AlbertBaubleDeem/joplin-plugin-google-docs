@@ -10,6 +10,7 @@
 import { markdownToIR } from '../converters/md-to-ir';
 import { irToMarkdown, normalizeMarkdown } from '../converters/ir-to-md';
 import { irToPlainTextWithRanges, buildListBulletRequests } from '../converters/ir-to-docs';
+import { convertMarkdownToPlainAndStyles } from '../converters';
 import { loadConfig } from '../converters/config';
 import { IRDocument, Paragraph, ListRange } from '../converters/types';
 
@@ -77,8 +78,9 @@ function assertContains(haystack: string, needle: string): TestResult {
 }
 
 function assertIRContains(ir: IRDocument, type: string, textFragment?: string): TestResult {
-  const found = ir.find(p => p.type === type && (!textFragment || 
-    p.spans.some(s => s.text.includes(textFragment))));
+  const found = type === 'table'
+    ? ir.find(b => b.type === 'table')
+    : ir.find(b => b.type !== 'table' && b.type === type && (!textFragment || (b as Paragraph).spans.some(s => s.text.includes(textFragment))));
   if (!found) {
     return {
       success: false,
@@ -126,6 +128,49 @@ test('Inline code preserves through roundtrip', () => {
   const ir = markdownToIR(md, loadConfig());
   const result = irToMarkdown(ir, loadConfig());
   return assertContains(result, '`inline code`');
+});
+
+// =============================================================================
+// TABLE TESTS
+// =============================================================================
+
+console.log('\n=== TABLES ===\n');
+
+test('GFM table parses to IR and roundtrips to markdown', () => {
+  const md = '# Doc\n\n| A | B |\n| --- | --- |\n| 1 | 2 |';
+  const ir = markdownToIR(md, loadConfig());
+  const r = assertIRContains(ir, 'table');
+  if (!r.success) return r;
+  const result = irToMarkdown(ir, loadConfig());
+  // Output is pretty-printed (column-aligned), e.g. | A   | B   | and | 1   | 2   |
+  const hasHeader = result.includes('| A') && (result.includes('B |') || result.includes('B   |'));
+  const hasDataRow = result.includes('| 1') && (result.includes('2 |') || result.includes('2   |'));
+  if (!hasHeader || !hasDataRow) {
+    return { success: false, message: `Expected table in output, got: ${result}` };
+  }
+  return { success: true };
+});
+
+test('convertMarkdownToPlainAndStyles returns tableRanges for GFM table', () => {
+  const md = '# Doc\n\n| H1 | H2 |\n| --- | --- |\n| a | b |';
+  const { plain, tableRanges } = convertMarkdownToPlainAndStyles(md, { processImages: false });
+  if (!tableRanges || tableRanges.length !== 1) {
+    return { success: false, message: `Expected 1 table range, got ${tableRanges?.length ?? 0}` };
+  }
+  const tr = tableRanges[0];
+  if (tr.rowCount !== 2 || tr.columnCount !== 2) {
+    return { success: false, message: `Expected 2x2 table, got ${tr.rowCount}x${tr.columnCount}` };
+  }
+  if (tr.headerRow[0]?.trim() !== 'H1' || tr.headerRow[1]?.trim() !== 'H2') {
+    return { success: false, message: `Expected header [H1, H2], got [${tr.headerRow}]` };
+  }
+  if (tr.dataRows[0]?.[0]?.trim() !== 'a' || tr.dataRows[0]?.[1]?.trim() !== 'b') {
+    return { success: false, message: `Expected first data row [a, b], got ${JSON.stringify(tr.dataRows[0])}` };
+  }
+  if (tr.position < 0 || tr.position >= plain.length) {
+    return { success: false, message: `Table position ${tr.position} should be within plain length ${plain.length}` };
+  }
+  return { success: true };
 });
 
 // =============================================================================

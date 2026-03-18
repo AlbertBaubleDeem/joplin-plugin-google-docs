@@ -135,12 +135,16 @@ const safeSerialize = (obj: unknown, maxDepth = 5): unknown => {
  */
 export function formatIRDocument(doc: IRDocument): string {
   const lines: string[] = [];
-  
   for (let i = 0; i < doc.length; i++) {
-    const para = doc[i];
-    lines.push(`[${i}] ${formatParagraph(para)}`);
+    const block = doc[i];
+    if (block.type === 'table') {
+      const cols = block.headerRow.length;
+      const dataRows = block.rows.length;
+      lines.push(`[${i}] TABLE: ${dataRows + 1}x${cols} (header + ${dataRows} rows)`);
+    } else {
+      lines.push(`[${i}] ${formatParagraph(block)}`);
+    }
   }
-  
   return lines.join('\n');
 }
 

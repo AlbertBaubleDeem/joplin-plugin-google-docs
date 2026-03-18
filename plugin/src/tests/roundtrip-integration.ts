@@ -295,8 +295,8 @@ async function main() {
 
   // Step 1: Convert markdown to plain text + style ranges
   console.log('1. convertMarkdownToPlainAndStyles...');
-  const { plain, paraRanges, textRanges, listRanges } = convertMarkdownToPlainAndStyles(testMarkdown);
-  console.log(`   plain: ${plain.length} chars, paraRanges: ${paraRanges.length}, textRanges: ${textRanges.length}, listRanges: ${listRanges.length}`);
+  const { plain, paraRanges, textRanges, listRanges, tableRanges } = convertMarkdownToPlainAndStyles(testMarkdown);
+  console.log(`   plain: ${plain.length} chars, paraRanges: ${paraRanges.length}, textRanges: ${textRanges.length}, listRanges: ${listRanges.length}, tableRanges: ${tableRanges?.length ?? 0}`);
 
   // Step 2: Create a new Google Doc via Drive
   console.log('2. Creating Google Doc...');

@@ -11,7 +11,7 @@
  * - Native Google Docs lists (ordered and unordered with nesting)
  */
 
-import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig, CalloutType } from './types';
+import { IRDocument, Paragraph, StyledSpan, ParagraphType, ConverterConfig, CalloutType, TableBlock, DocBlock } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
 import { calloutDefinitions, matchCalloutByColor } from './callout-config';
@@ -436,6 +436,48 @@ const elementToParagraph = (
 };
 
 /**
+ * Convert a Google Docs table element to a TableBlock.
+ * Walks tableRows -> tableCells -> cell content (paragraphs) and extracts spans per cell.
+ */
+const tableElementToTableBlock = (
+  table: any,
+  config: ConverterConfig,
+  inlineObjects: InlineObjectsDict,
+  lists: ListsDict
+): TableBlock => {
+  const headerRow: StyledSpan[][] = [];
+  const rows: StyledSpan[][][] = [];
+  const tableRows = table?.tableRows || [];
+
+  const cellToSpans = (cell: any): StyledSpan[] => {
+    const content = cell?.content || [];
+    const spans: StyledSpan[] = [];
+    for (const se of content) {
+      const para = se?.paragraph;
+      if (!para?.elements) continue;
+      for (const el of para.elements) {
+        const span = elementToSpan(el, false, config, inlineObjects);
+        if (span) spans.push(span);
+      }
+    }
+    if (spans.length === 0) spans.push({ text: '' });
+    return spans;
+  };
+
+  for (let r = 0; r < tableRows.length; r++) {
+    const row = tableRows[r];
+    const cells = (row?.tableCells || []).map(cellToSpans);
+    if (r === 0) {
+      headerRow.push(...cells);
+    } else {
+      rows.push(cells);
+    }
+  }
+
+  return { type: 'table', headerRow, rows };
+};
+
+/**
  * Merge consecutive code_block paragraphs into a single code block.
  * When mergeAcrossBlankLine is true, also merges when a blank paragraph separates them (paste-artifact case).
  */
@@ -515,13 +557,13 @@ const extractLanguageLabels = (paragraphs: Paragraph[], rawBody: any[]): Paragra
 };
 
 /**
- * Merge adjacent spans with identical styles.
+ * Merge adjacent spans with identical styles in paragraph blocks; table blocks unchanged.
  */
 export const mergeAdjacentSpans = (doc: IRDocument): IRDocument => {
-  return doc.map(para => ({
-    ...para,
-    spans: mergeSpans(para.spans),
-  }));
+  return doc.map(block => {
+    if (block.type === 'table') return block;
+    return { ...block, spans: mergeSpans(block.spans) };
+  });
 };
 
 const mergeSpans = (spans: StyledSpan[]): StyledSpan[] => {
@@ -560,35 +602,65 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   const body = doc?.body?.content || [];
   const inlineObjects: InlineObjectsDict = doc?.inlineObjects || {};
   const lists: ListsDict = doc?.lists || {};
-  
+
   debug('docs-to-ir', 'input', body);
   debug('docs-to-ir', 'inlineObjects-count', Object.keys(inlineObjects).length);
   debug('docs-to-ir', 'lists-count', Object.keys(lists).length);
-  
-  const paragraphs: Paragraph[] = [];
+
+  const blocks: DocBlock[] = [];
   let lastWasEmpty = false;
-  
+
   for (const element of body) {
+    if (element?.table) {
+      blocks.push(tableElementToTableBlock(element.table, cfg, inlineObjects, lists));
+      lastWasEmpty = false;
+      continue;
+    }
+
     const result = elementToParagraph(element, cfg, inlineObjects, lists);
-    
     if (result === null) {
       lastWasEmpty = true;
       continue;
     }
-    
-    // Flag paragraphs that had an empty paragraph before them
     if (lastWasEmpty) {
       result.hasPrecedingSeparator = true;
       lastWasEmpty = false;
     }
-    
-    paragraphs.push(result);
+    blocks.push(result);
   }
-  
-  // Post-processing pipeline
-  const mergedParagraphs = mergeConsecutiveCodeBlocks(paragraphs, cfg);
-  const finalParagraphs = extractLanguageLabels(mergedParagraphs, body);
-  
-  debug('docs-to-ir', 'result', finalParagraphs);
-  return finalParagraphs;
+
+  const mergedBlocks = mergeConsecutiveCodeBlocksInDoc(blocks, cfg);
+  const finalBlocks = extractLanguageLabelsInDoc(mergedBlocks, body);
+  debug('docs-to-ir', 'result', finalBlocks);
+  return finalBlocks;
+}
+
+/** Merge consecutive code_block paragraphs in a DocBlock list; leave tables and other blocks as-is. */
+const mergeConsecutiveCodeBlocksInDoc = (blocks: DocBlock[], config?: ConverterConfig): DocBlock[] => {
+  const paras = blocks.filter((b): b is Paragraph => b.type !== 'table');
+  const merged = mergeConsecutiveCodeBlocks(paras, config);
+  const tableIndices = new Set(blocks.map((b, i) => (b.type === 'table' ? i : -1)).filter(i => i >= 0));
+  const result: DocBlock[] = [];
+  let paraIdx = 0;
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].type === 'table') {
+      result.push(blocks[i]);
+    } else {
+      if (paraIdx < merged.length) result.push(merged[paraIdx++]);
+    }
+  }
+  return result;
+};
+
+/** Extract language labels from code blocks in DocBlock list. */
+const extractLanguageLabelsInDoc = (blocks: DocBlock[], rawBody: any[]): DocBlock[] => {
+  const paras = blocks.filter((b): b is Paragraph => b.type !== 'table');
+  const processed = extractLanguageLabels(paras, rawBody);
+  const result: DocBlock[] = [];
+  let paraIdx = 0;
+  for (const b of blocks) {
+    if (b.type === 'table') result.push(b);
+    else if (paraIdx < processed.length) result.push(processed[paraIdx++]);
+  }
+  return result;
 }

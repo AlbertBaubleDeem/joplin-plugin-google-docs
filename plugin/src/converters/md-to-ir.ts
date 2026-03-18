@@ -6,7 +6,7 @@
  */
 
 import { marked, Token, Tokens } from 'marked';
-import { IRDocument, Paragraph, StyledSpan, ConverterConfig, CalloutType } from './types';
+import { IRDocument, Paragraph, StyledSpan, ConverterConfig, CalloutType, TableBlock, DocBlock } from './types';
 import { loadConfig } from './config';
 import { debug } from './debug';
 import { calloutTypeNames } from './callout-config';
@@ -87,30 +87,29 @@ export function markdownToIR(markdown: string, config?: ConverterConfig): IRDocu
   const tokens = marked.lexer(preprocessed);
   debug('md-to-ir', 'tokens', tokens);
   
-  // Convert tokens to IR paragraphs
-  const paragraphs: Paragraph[] = [];
-  
+  // Convert tokens to IR blocks (paragraphs + tables)
+  const blocks: DocBlock[] = [];
   for (const token of tokens) {
-    const paras = tokenToParagraphs(token, cfg, calloutMap);
-    paragraphs.push(...paras);
+    const items = tokenToBlocks(token, cfg, calloutMap);
+    blocks.push(...items);
   }
   
-  // Apply title/subtitle rules
-  applyTitleRules(paragraphs, cfg);
+  // Apply title/subtitle rules (only to paragraphs)
+  applyTitleRules(blocks, cfg);
   
-  debug('md-to-ir', 'result', paragraphs);
-  return paragraphs;
+  debug('md-to-ir', 'result', blocks);
+  return blocks;
 }
 
 /**
- * Convert a single marked token to one or more Paragraphs.
+ * Convert a single marked token to one or more DocBlocks (Paragraph or TableBlock).
  * Lists can produce multiple paragraphs.
  */
-const tokenToParagraphs = (
-  token: Token, 
+const tokenToBlocks = (
+  token: Token,
   config: ConverterConfig,
   calloutMap: Map<string, ExtractedCallout>
-): Paragraph[] => {
+): DocBlock[] => {
   switch (token.type) {
     case 'heading':
       return [{
@@ -194,7 +193,20 @@ const tokenToParagraphs = (
     case 'list':
       // Flatten list items to paragraphs, including nested content
       return processListToken(token as Tokens.List, config);
-    
+
+    case 'table': {
+      const tableToken = token as Tokens.Table;
+      const headerRow: StyledSpan[][] = (tableToken.header || []).map(cell =>
+        (cell.tokens && cell.tokens.length) ? inlineTokensToSpans(cell.tokens) : [{ text: cell.text || '' }]
+      );
+      const rows: StyledSpan[][][] = (tableToken.rows || []).map(row =>
+        row.map(cell =>
+          (cell.tokens && cell.tokens.length) ? inlineTokensToSpans(cell.tokens) : [{ text: cell.text || '' }]
+        )
+      );
+      return [{ type: 'table', headerRow, rows }];
+    }
+
     default:
       // Unknown token type - log and skip
       debug('md-to-ir', 'unknown-token', { type: token.type, token });
@@ -383,40 +395,43 @@ const mergeSpans = (spans: StyledSpan[]): StyledSpan[] => {
 
 /**
  * Apply title/subtitle rules based on config.
+ * Only mutates paragraph blocks; table blocks are skipped.
  */
-const applyTitleRules = (paragraphs: Paragraph[], config: ConverterConfig): void => {
+const applyTitleRules = (blocks: DocBlock[], config: ConverterConfig): void => {
+  if (blocks.length === 0) return;
+
+  const paragraphs = blocks.filter((b): b is Paragraph => b.type !== 'table');
   if (paragraphs.length === 0) return;
-  
+
   // First paragraph becomes title if configured
-  // But not if it's a code block or image-only paragraph (these should stay as-is)
+  const firstPara = paragraphs[0];
+  const firstIdx = blocks.indexOf(firstPara);
+  if (firstIdx === -1) return;
+
   if (config.title?.useTitle) {
-    const first = paragraphs[0];
-    const isCodeBlock = first.type === 'code_block';
-    const isImageOnly = first.spans.length === 1 && 
-      /^!\[.*?\]\(.*?\)$/.test(first.spans[0].text.trim());
-    
+    const isCodeBlock = firstPara.type === 'code_block';
+    const isImageOnly = firstPara.spans.length === 1 &&
+      /^!\[.*?\]\(.*?\)$/.test(firstPara.spans[0].text.trim());
+
     if (!isCodeBlock && !isImageOnly) {
-      paragraphs[0].type = 'title';
-      paragraphs[0].level = undefined;
+      firstPara.type = 'title';
+      firstPara.level = undefined;
     }
   }
-  
+
   // Detect subtitle (first italic paragraph after title)
   if (config.subtitle?.mode === 'italic' && paragraphs.length > 1) {
     for (let i = 1; i < paragraphs.length; i++) {
       const para = paragraphs[i];
       if (para.type === 'code_block') continue;
-      
-      // Check if all spans are italic
-      const allItalic = para.spans.length > 0 && 
+
+      const allItalic = para.spans.length > 0 &&
         para.spans.every(span => span.italic || span.text.trim() === '');
-      
+
       if (allItalic) {
         para.type = 'subtitle';
         break;
       }
-      
-      // Stop looking if we hit a non-empty, non-italic paragraph
       if (para.spans.some(s => s.text.trim() !== '')) {
         break;
       }
