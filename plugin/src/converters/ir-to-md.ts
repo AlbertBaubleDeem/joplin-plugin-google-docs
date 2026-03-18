@@ -42,7 +42,8 @@ const escapeCell = (s: string): string =>
 
 /**
  * Determine the newline delimiter between two blocks.
- * Single newline before tables (heading or normal text) to avoid extra blank line; blank line after tables.
+ * Single newline before tables; blank line after tables (required by marked to
+ * terminate the table — without it, marked absorbs the next line as a table row).
  */
 const getDelimiter = (prev: DocBlock, current: DocBlock): string => {
   if (current.type === 'table') return '\n';

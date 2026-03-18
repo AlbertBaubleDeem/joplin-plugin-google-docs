@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5
+
+### Bug fixes
+- **Table drift fix:** Trim trailing newlines from text segments before inserting into Google Docs, preventing extra empty paragraphs that caused tables to shift position on each roundtrip.
+
 ## 1.0.4
 
 ### Table roundtrip

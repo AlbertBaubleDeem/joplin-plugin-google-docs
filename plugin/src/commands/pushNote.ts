@@ -227,7 +227,7 @@ async function applyTableRanges(
     state = await getDocState(docs, fileId, { includeTabs: true, tabId });
 
     const nextSegmentEnd = i + 1 < tables.length ? tables[i + 1].position + 1 : plain.length;
-    const nextSegment = plain.slice(tr.position + 1, nextSegmentEnd);
+    const nextSegment = plain.slice(tr.position + 1, nextSegmentEnd).replace(/\n+$/, '');
     const insertIndex = state.endIndex - 1;
     const docEnd0Based = insertIndex - 1;
     tableOffsets.push({ plainEnd: tr.position + 1, docEnd: docEnd0Based });
@@ -306,7 +306,11 @@ async function executePush(
   const docStateOpts = { includeTabs: true, tabId };
   const { endIndex, revisionId } = await getDocState(docs, fileId, docStateOpts);
 
-  const initialText = tables.length > 0 ? plain.slice(0, tables[0].position + 1) : plain;
+  // Trim trailing newlines before first table so we don't create extra empty paragraphs in Docs
+  // (InsertTable already inserts one newline before the table.)
+  const initialText = tables.length > 0
+    ? plain.slice(0, tables[0].position + 1).replace(/\n+$/, '')
+    : plain;
   let requests: unknown[] = [];
   if (endIndex > 2) {
     requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
