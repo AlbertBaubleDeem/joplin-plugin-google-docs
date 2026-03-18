@@ -42,12 +42,11 @@ const escapeCell = (s: string): string =>
 
 /**
  * Determine the newline delimiter between two blocks.
- * Tables are always surrounded by blank lines.
+ * Single newline before tables (heading or normal text) to avoid extra blank line; blank line after tables.
  */
 const getDelimiter = (prev: DocBlock, current: DocBlock): string => {
-  if (prev.type === 'table' || current.type === 'table') {
-    return '\n\n';
-  }
+  if (current.type === 'table') return '\n';
+  if (prev.type === 'table') return '\n\n';
   const prevPara = prev;
   const currentPara = current;
   const prevIsListItem = isListItemParagraph(prevPara);
@@ -103,7 +102,7 @@ export function irToMarkdown(doc: IRDocument, config?: ConverterConfig): string 
       converted.push({ text: tableBlockToMarkdown(block, cfg), block });
     } else {
       const line = paragraphToMarkdown(block, cfg, listState);
-      if (line !== null) {
+      if (line != null && line !== '') {
         converted.push({ text: line, block });
       }
     }
