@@ -637,32 +637,86 @@ export function docsToIR(doc: any, config?: ConverterConfig): IRDocument {
   return finalBlocks;
 }
 
-/** Merge consecutive code_block paragraphs in a DocBlock list; leave tables and other blocks as-is. */
+/**
+ * Merge consecutive code_block paragraphs in-place within a DocBlock list.
+ * Tables act as barriers — code blocks on opposite sides of a table are never merged.
+ */
 const mergeConsecutiveCodeBlocksInDoc = (blocks: DocBlock[], config?: ConverterConfig): DocBlock[] => {
-  const paras = blocks.filter((b): b is Paragraph => b.type !== 'table');
-  const merged = mergeConsecutiveCodeBlocks(paras, config);
-  const tableIndices = new Set(blocks.map((b, i) => (b.type === 'table' ? i : -1)).filter(i => i >= 0));
+  if (blocks.length === 0) return [];
+  const mergeAcrossBlank = config?.code?.block?.mergeAcrossBlankLine === true;
   const result: DocBlock[] = [];
-  let paraIdx = 0;
-  for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].type === 'table') {
-      result.push(blocks[i]);
+
+  for (const block of blocks) {
+    if (block.type === 'table') {
+      result.push(block);
+      continue;
+    }
+    const last = result[result.length - 1];
+    const lastIsPara = last && last.type !== 'table';
+    const mayMerge = lastIsPara && (last as Paragraph).type === 'code_block' &&
+      block.type === 'code_block' &&
+      (!(block as Paragraph).hasPrecedingSeparator || mergeAcrossBlank);
+
+    if (mayMerge) {
+      const lastPara = last as Paragraph;
+      const separator = (block as Paragraph).hasPrecedingSeparator ? '\n\n' : '\n';
+      lastPara.spans.push({ text: separator }, ...(block as Paragraph).spans);
+      debug('docs-to-ir', 'merged-code-block', (block as Paragraph).spans[0]?.text?.substring(0, 20));
     } else {
-      if (paraIdx < merged.length) result.push(merged[paraIdx++]);
+      result.push(block);
     }
   }
   return result;
 };
 
-/** Extract language labels from code blocks in DocBlock list. */
+/**
+ * Extract language labels from code blocks in-place within a DocBlock list.
+ * Tables act as barriers — a label is only absorbed if it immediately follows a
+ * code block in the block list (not across a table boundary).
+ */
 const extractLanguageLabelsInDoc = (blocks: DocBlock[], rawBody: any[]): DocBlock[] => {
-  const paras = blocks.filter((b): b is Paragraph => b.type !== 'table');
-  const processed = extractLanguageLabels(paras, rawBody);
+  if (blocks.length === 0) return [];
+
+  const rawElementMap = new Map<string, any>();
+  for (const element of rawBody) {
+    if (element?.paragraph?.elements) {
+      const content = element.paragraph.elements
+        .map((e: any) => e.textRun?.content || '')
+        .join('')
+        .replace(/\n+$/g, '')
+        .trim();
+      if (content) rawElementMap.set(content, element);
+    }
+  }
+
   const result: DocBlock[] = [];
-  let paraIdx = 0;
-  for (const b of blocks) {
-    if (b.type === 'table') result.push(b);
-    else if (paraIdx < processed.length) result.push(processed[paraIdx++]);
+  let i = 0;
+  while (i < blocks.length) {
+    const block = blocks[i];
+
+    if (block.type !== 'table' && (block as Paragraph).type === 'code_block' && i + 1 < blocks.length) {
+      const next = blocks[i + 1];
+      if (next.type !== 'table') {
+        const nextPara = next as Paragraph;
+        const nextContent = nextPara.spans.map(s => s.text).join('').trim();
+        const rawElement = rawElementMap.get(nextContent);
+        if (rawElement) {
+          const { isLabel, language } = isLanguageLabelElement(rawElement);
+          if (isLabel && language) {
+            (block as Paragraph).language = language;
+            debug('docs-to-ir', 'extracted-lang-from-label', {
+              language, codePreview: (block as Paragraph).spans[0]?.text?.substring(0, 30),
+            });
+            result.push(block);
+            i += 2;
+            continue;
+          }
+        }
+      }
+    }
+
+    result.push(block);
+    i++;
   }
   return result;
 }

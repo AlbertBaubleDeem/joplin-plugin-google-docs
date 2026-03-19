@@ -137,62 +137,60 @@ function withTabId(requests: unknown[], tabId: string | undefined): unknown[] {
   });
 }
 
-/** Result of applyTableRanges: new revision and offsets for adjusting style/list ranges. */
+/** Table offsets for mapping plain-text positions to document positions after table insertion. */
 type TableOffsets = { plainEnd: number; docEnd: number }[];
 
 /**
- * Find the last table in content and return its endIndex and cell indices for insertText.
- * Per wiki: startIndex/endIndex are on the StructuralElement (cell.content[0]), not on .paragraph.
+ * Find a table element near the expected start index and extract cell positions.
+ * Used after InsertTable at a known location to identify the newly created table.
  */
-function findLastTableAndCells(content: ContentElement[]): { endIndex: number; cells: { startIndex: number; text: string }[] } | null {
-  let lastTable: { endIndex: number; table: TableEl } | null = null;
-  for (let i = 0; i < content.length; i++) {
-    const el = content[i];
-    if (el?.table && el.endIndex != null) {
-      lastTable = { endIndex: el.endIndex, table: el.table };
-    }
-  }
-  if (!lastTable) return null;
-  const { table, endIndex } = lastTable;
-  const cells: { startIndex: number; text: string }[] = [];
-  const rows = table.tableRows ?? [];
-  for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-    const row = rows[rowIdx];
-    const tableCells = row.tableCells ?? [];
-    for (let colIdx = 0; colIdx < tableCells.length; colIdx++) {
-      const cell = tableCells[colIdx];
-      const firstContent = cell.content?.[0];
-      const startIndex = firstContent?.startIndex ?? cell.startIndex;
-      if (startIndex != null) {
-        cells.push({ startIndex, text: '' });
+function findTableAndCells(
+  content: ContentElement[],
+  expectedStartIndex: number
+): { startIndex: number; endIndex: number; cells: { startIndex: number; text: string }[] } | null {
+  let best: ContentElement | null = null;
+  let bestDist = Infinity;
+  for (const el of content) {
+    if (el?.table && el.startIndex != null) {
+      const dist = Math.abs(el.startIndex - expectedStartIndex);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = el;
       }
     }
   }
-  return { endIndex, cells };
+  if (!best?.table || best.startIndex == null || best.endIndex == null) return null;
+  const cells: { startIndex: number; text: string }[] = [];
+  for (const row of best.table.tableRows ?? []) {
+    for (const cell of row.tableCells ?? []) {
+      const si = cell.content?.[0]?.startIndex ?? cell.startIndex;
+      if (si != null) cells.push({ startIndex: si, text: '' });
+    }
+  }
+  return { startIndex: best.startIndex, endIndex: best.endIndex, cells };
 }
 
 /**
- * Segment-based table insert: InsertTable at end, re-fetch, fill cells (reverse index order), then append next text segment.
- * Returns new revision id, final end index, and table offsets for adjusting style/list ranges.
+ * Insert tables in REVERSE order using location.index (backward-editing strategy).
+ * Each table is inserted at its placeholder position in the plain text, then cells are filled.
+ * Reverse order ensures earlier table positions are never shifted by later insertions.
  */
-async function applyTableRanges(
+async function insertTablesReverse(
   docs: SyncContext['docs'],
   fileId: string,
   tabId: string | undefined,
   tables: TableRange[],
-  plain: string,
   initialState: DocState
-): Promise<{ newRevisionId: string; endIndex: number; tableOffsets: TableOffsets }> {
+): Promise<{ newRevisionId: string; endIndex: number }> {
   let state = initialState;
-  const tableOffsets: TableOffsets = [];
 
-  for (let i = 0; i < tables.length; i++) {
+  for (let i = tables.length - 1; i >= 0; i--) {
     const tr = tables[i];
     const insertReq = {
       insertTable: {
         rows: tr.rowCount,
         columns: tr.columnCount,
-        endOfSegmentLocation: { segmentId: '', tabId },
+        location: { index: tr.position + 1, tabId },
       },
     };
     await docs.documents.batchUpdate({
@@ -203,56 +201,66 @@ async function applyTableRanges(
       },
     });
     state = await getDocState(docs, fileId, { includeTabs: true, tabId });
-    const found = findLastTableAndCells(state.content);
+
+    // InsertTable adds a \n before the table, so it starts at position + 2 (1-based)
+    const found = findTableAndCells(state.content, tr.position + 2);
     if (!found) {
-      throw new Error('Table insert did not return a table in document.');
+      throw new Error(`Table insert at plain position ${tr.position} did not produce a table.`);
     }
-    const { endIndex: tableEndIndex, cells } = found;
 
     const cellTexts: string[] = [...tr.headerRow];
-    for (const row of tr.dataRows) {
-      cellTexts.push(...row);
-    }
-    const cellsWithText = cells.map((c, idx) => ({ ...c, text: cellTexts[idx] ?? '' }));
+    for (const row of tr.dataRows) cellTexts.push(...row);
+
+    const cellsWithText = found.cells.map((c, idx) => ({ ...c, text: cellTexts[idx] ?? '' }));
     cellsWithText.sort((a, b) => b.startIndex - a.startIndex);
-    for (const c of cellsWithText) {
-      const text = (c.text ?? '').replace(/\u000B/g, '\n');
-      if (text === '') continue;
-      const req = { insertText: { location: { index: c.startIndex, tabId }, text } };
+    const cellReqs = cellsWithText
+      .filter(c => (c.text ?? '') !== '')
+      .map(c => ({
+        insertText: { location: { index: c.startIndex, tabId }, text: (c.text ?? '').replace(/\u000B/g, '\n') },
+      }));
+    if (cellReqs.length > 0) {
       await docs.documents.batchUpdate({
         documentId: fileId,
-        requestBody: { requests: withTabId([req], tabId) },
+        requestBody: { requests: withTabId(cellReqs, tabId) },
       });
     }
+
     state = await getDocState(docs, fileId, { includeTabs: true, tabId });
-
-    const nextSegmentEnd = i + 1 < tables.length ? tables[i + 1].position + 1 : plain.length;
-    const nextSegment = plain.slice(tr.position + 1, nextSegmentEnd).replace(/\n+$/, '');
-    const insertIndex = state.endIndex - 1;
-    const docEnd0Based = insertIndex - 1;
-    tableOffsets.push({ plainEnd: tr.position + 1, docEnd: docEnd0Based });
-
-    if (nextSegment.length > 0) {
-      const segReq = { insertText: { location: { index: insertIndex, tabId }, text: nextSegment } };
-      await docs.documents.batchUpdate({
-        documentId: fileId,
-        requestBody: { requests: withTabId([segReq], tabId) },
-      });
-      state = await getDocState(docs, fileId, { includeTabs: true, tabId });
-    }
   }
 
-  return {
-    newRevisionId: state.revisionId,
-    endIndex: state.endIndex,
-    tableOffsets,
-  };
+  return { newRevisionId: state.revisionId, endIndex: state.endIndex };
 }
 
 /**
- * Offset to add to a plain position to get the doc position.
- * Content after table i lives in a segment that starts at plainEnd_i in plain and docEnd_i in doc,
- * so we use the offset for the segment that contains plainPosition (last table with plainEnd <= plainPosition).
+ * Build table offsets from the final document structure.
+ * Each table adds (1 + tableSize) extra characters (the InsertTable \n + the table element).
+ * Offsets are cumulative so that offsetAt returns the total shift for any plain-text position.
+ */
+function computeTableOffsets(content: ContentElement[], tablePositions: number[]): TableOffsets {
+  const docTables: { startIndex: number; endIndex: number }[] = [];
+  for (const el of content) {
+    if (el?.table && el.startIndex != null && el.endIndex != null) {
+      docTables.push({ startIndex: el.startIndex, endIndex: el.endIndex });
+    }
+  }
+  docTables.sort((a, b) => a.startIndex - b.startIndex);
+
+  const offsets: TableOffsets = [];
+  let cumExtra = 0;
+  for (let i = 0; i < tablePositions.length && i < docTables.length; i++) {
+    const tableSize = docTables[i].endIndex - docTables[i].startIndex;
+    cumExtra += 1 + tableSize;
+    offsets.push({
+      plainEnd: tablePositions[i] + 1,
+      docEnd: tablePositions[i] + 1 + cumExtra,
+    });
+  }
+  return offsets;
+}
+
+/**
+ * Offset to add to a 0-based plain position to get the adjusted 0-based position in the document.
+ * Uses the last table whose plainEnd <= plainPosition to determine the cumulative shift.
  */
 function offsetAt(tableOffsets: TableOffsets, plainPosition: number): number {
   let offset = 0;
@@ -277,7 +285,6 @@ async function executePush(
   const note = await getNoteById(j, noteId, ['id', 'title', 'body']);
   const mdRaw: string = String(note.body ?? '');
 
-  // Check if GCS is configured BEFORE conversion
   const gcsBucketName = await getGCSBucketNameAsync(j, installDir);
   const processImages_flag = !!gcsBucketName;
 
@@ -306,77 +313,69 @@ async function executePush(
   const docStateOpts = { includeTabs: true, tabId };
   const { endIndex, revisionId } = await getDocState(docs, fileId, docStateOpts);
 
-  // Trim trailing newlines before first table so we don't create extra empty paragraphs in Docs
-  // (InsertTable already inserts one newline before the table.)
-  const initialText = tables.length > 0
-    ? plain.slice(0, tables[0].position + 1).replace(/\n+$/, '')
-    : plain;
-  let requests: unknown[] = [];
+  // ── Phase 1: Insert ALL plain text (including \n placeholders for tables) ──
+  let initReqs: unknown[] = [];
   if (endIndex > 2) {
-    requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
+    initReqs.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
   }
-  requests.push({ insertText: { location: { index: 1 }, text: initialText } });
-  requests = withTabId(requests, tabId);
+  initReqs.push({ insertText: { location: { index: 1 }, text: plain } });
+  initReqs = withTabId(initReqs, tabId);
 
   await docs.documents.batchUpdate({
     documentId: fileId,
     requestBody: {
-      requests,
+      requests: initReqs,
       writeControl: revisionId ? { requiredRevisionId: revisionId } : undefined,
     },
   });
 
   let afterState = await getDocState(docs, fileId, docStateOpts);
+
+  // ── Phase 2: Apply paragraph + text styles (indices are direct, no offsets) ──
+  // Styles attach to paragraphs/runs and survive the table insertions in Phase 3.
+  const styleReqs = buildDocsStyleUpdateRequests(paraRanges, textRanges, { installDir });
+  if (styleReqs.length) {
+    await docs.documents.batchUpdate({
+      documentId: fileId,
+      requestBody: { requests: withTabId(styleReqs, tabId) },
+    });
+    afterState = await getDocState(docs, fileId, docStateOpts);
+  }
+
+  // ── Phase 3: Insert tables in REVERSE order at their placeholder positions ──
   let newRevisionId = afterState.revisionId;
-  let endIndexAfterInsert = 1;
-  let effectiveParaRanges = paraRanges;
-  let effectiveTextRanges = textRanges;
+  if (tables.length > 0) {
+    const tableResult = await insertTablesReverse(docs, fileId, tabId, tables, afterState);
+    newRevisionId = tableResult.newRevisionId;
+    afterState = await getDocState(docs, fileId, docStateOpts);
+  }
+
+  // ── Phase 4: Compute table offsets from final document structure ──
   let effectiveListRanges = listRanges;
   let effectiveImageRanges = imageRanges;
 
   if (tables.length > 0) {
-    const result = await applyTableRanges(docs, fileId, tabId, tables, plain, afterState);
-    newRevisionId = result.newRevisionId;
-    endIndexAfterInsert = result.endIndex;
-    afterState = await getDocState(docs, fileId, docStateOpts);
-    const off = (p: number) => offsetAt(result.tableOffsets, p);
-    effectiveParaRanges = paraRanges.map(r => ({ ...r, start: r.start + off(r.start), end: r.end + off(r.end) }));
-    effectiveTextRanges = textRanges.map(r => ({ ...r, start: r.start + off(r.start), end: r.end + off(r.end) }));
+    const tableOffsets = computeTableOffsets(afterState.content, tables.map(t => t.position));
+    const off = (p: number) => offsetAt(tableOffsets, p);
     effectiveListRanges = listRanges.map(r => ({
       ...r,
       startIndex: r.startIndex + off(r.startIndex),
       endIndex: r.endIndex + off(r.endIndex),
     }));
     effectiveImageRanges = imageRanges.map(img => ({ ...img, position: img.position + off(img.position) }));
-  } else {
-    for (let i = afterState.content.length - 1; i >= 0; i--) {
-      if (afterState.content[i].paragraph) {
-        endIndexAfterInsert = Number(afterState.content[i].endIndex || 1);
-        break;
-      }
-    }
-    if (endIndexAfterInsert === 1 && afterState.content.length > 0) {
-      endIndexAfterInsert = afterState.endIndex;
-    }
   }
 
-  if (endIndexAfterInsert > 2) {
-    const bulletClearReqs = withTabId([{
-      deleteParagraphBullets: {
-        range: { startIndex: 1, endIndex: endIndexAfterInsert },
+  // ── Phase 5: Clear bullets, apply list bullets + images (with offsets) ──
+  if (afterState.endIndex > 2) {
+    await docs.documents.batchUpdate({
+      documentId: fileId,
+      requestBody: {
+        requests: withTabId([{
+          deleteParagraphBullets: {
+            range: { startIndex: 1, endIndex: afterState.endIndex },
+          },
+        }], tabId),
       },
-    }], tabId);
-    await docs.documents.batchUpdate({
-      documentId: fileId,
-      requestBody: { requests: bulletClearReqs },
-    });
-  }
-
-  const styleReqs = buildDocsStyleUpdateRequests(effectiveParaRanges, effectiveTextRanges, { installDir });
-  if (styleReqs.length) {
-    await docs.documents.batchUpdate({
-      documentId: fileId,
-      requestBody: { requests: withTabId(styleReqs, tabId) },
     });
   }
 
