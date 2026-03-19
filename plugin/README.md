@@ -51,6 +51,10 @@ When pulling a Google Doc into Joplin, consecutive paragraphs that form a single
 
 ## Changelog
 
+### 1.0.6
+
+- **Table stability rewrite:** Reverse table insertion on push, in-place IR processing on pull, batched cell fills. Fixes table drift on roundtrip and avoids write quota limits on larger documents.
+
 ### 1.0.4
 
 - **Table roundtrip:** Markdown tables sync to Google Docs and back; multiline cells use `<br>` in Markdown.

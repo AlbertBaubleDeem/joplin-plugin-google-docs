@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.6
+
+### Table stability rewrite
+- **Push: reverse table insertion.** Tables are now inserted in reverse document order using `location.index` instead of `endOfSegmentLocation`. All text is inserted in a single pass first, then paragraph/text styles are applied (before tables — styles survive table insertion), then tables are placed at their exact positions. Eliminates the forward-pass segment insertion that caused cumulative table drift.
+- **Pull: in-place IR post-processing.** Code block merging and language label extraction now operate directly on the block list with tables in place. The old algorithm separated tables from paragraphs and re-interleaved with a counter, which desynced when paragraphs were absorbed (e.g. language labels), shifting later tables down.
+- **Batched cell fills.** All cell text insertions for a single table are sent in one `batchUpdate` call (sorted in reverse index order). Reduces write API calls from ~1 per cell to ~1 per table, avoiding the 60 writes/minute quota on larger documents.
+
 ## 1.0.5
 
 ### Bug fixes

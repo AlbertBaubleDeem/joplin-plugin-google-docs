@@ -2,7 +2,7 @@
 
 Bidirectional sync between Joplin notes and Google Docs. Edit in Joplin, changes appear in Google Docs. Collaborate in Google Docs, pull changes back to Joplin. Includes image support, native list formatting, and Markdown preservation.
 
-**Platform:** Desktop | **Version:** 1.0.4 | **Distribution:** `.jpl` (639KB, all dependencies bundled)
+**Platform:** Desktop | **Version:** 1.0.6 | **Distribution:** `.jpl` (639KB, all dependencies bundled)
 
 ## Features
 
